@@ -1,0 +1,73 @@
+workflows:
+  ios-release:
+    name: iOS Release (Flutter)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      vars:
+        APP_DIR: testapp
+
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: true
+
+    scripts:
+      - name: Flutter clean and dependencies
+        script: |
+          cd "$APP_DIR"
+          flutter clean
+          flutter pub get
+
+      - name: Verify iOS scheme exists
+        script: |
+          cd "$APP_DIR/ios"
+          xcodebuild -workspace Runner.xcworkspace -list
+
+      - name: Build iOS app (no codesign)
+        script: |
+          cd "$APP_DIR"
+          flutter build ios --release --no-codesign
+
+    artifacts:
+      - testapp/build/ios/iphoneos/Runner.app
+      - testapp/build/ios/archive/*.xcarchive
+
+  ios-ipa-signed:
+    name: iOS IPA Signed (Flutter)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+
+    integrations:
+      app_store_connect: Codemagic
+
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.example.newTestApp
+      vars:
+        APP_DIR: testapp
+
+    scripts:
+      - name: Flutter dependencies
+        script: |
+          cd "$APP_DIR"
+          flutter pub get
+
+      - name: Build signed IPA
+        script: |
+          cd "$APP_DIR"
+          flutter build ipa --release
+
+    artifacts:
+      - testapp/build/ios/ipa/*.ipa
