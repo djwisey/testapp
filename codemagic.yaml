@@ -1,3 +1,10 @@
+# Codemagic YAML v1 configuration for Flutter iOS release builds.
+# IMPORTANT: Set the required App Store Connect environment variables in Codemagic UI:
+# - APP_STORE_CONNECT_KEY_IDENTIFIER
+# - APP_STORE_CONNECT_ISSUER_ID
+# - APP_STORE_CONNECT_PRIVATE_KEY
+# - CERTIFICATE_PRIVATE_KEY
+
 workflows:
   ios-release:
     name: iOS Release (Flutter)
@@ -8,14 +15,12 @@ workflows:
       flutter: stable
       xcode: latest
       cocoapods: default
-
-    triggering:
-      events:
-        - push
-      branch_patterns:
-        - pattern: main
-          include: true
-          source: true
+      vars:
+        # Replace with your real iOS bundle identifier if this is different.
+        BUNDLE_ID: com.yourname.testapp
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.yourname.testapp
 
     scripts:
       - name: Flutter clean and dependencies
@@ -23,42 +28,34 @@ workflows:
           flutter clean
           flutter pub get
 
-      - name: Verify iOS scheme exists
+      - name: Verify Runner scheme file exists
         script: |
-          xcodebuild -workspace ios/Runner.xcworkspace -list
+          if [ ! -f ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme ]; then
+            echo "Missing iOS scheme file at ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme"
+            exit 1
+          fi
 
-      - name: Build iOS app (no codesign)
+      - name: Configure automatic code signing
         script: |
-          flutter build ios --release --no-codesign
+          keychain initialize
+          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create
+          keychain add-certificates
+          xcode-project use-profiles
 
-    artifacts:
-      - build/ios/iphoneos/Runner.app
-      - build/ios/archive/*.xcarchive
-
-  ios-ipa-signed:
-    name: iOS IPA Signed (Flutter)
-    instance_type: mac_mini_m2
-    max_build_duration: 60
-
-    integrations:
-      app_store_connect: Codemagic
-
-    environment:
-      flutter: stable
-      xcode: latest
-      cocoapods: default
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.example.newTestApp
-
-    scripts:
-      - name: Flutter dependencies
+      - name: Build signed IPA with Codemagic build number
         script: |
-          flutter pub get
-
-      - name: Build signed IPA
-        script: |
-          flutter build ipa --release
+          BUILD_NO="${PROJECT_BUILD_NUMBER:-$BUILD_NUMBER}"
+          flutter build ipa --release --build-number="$BUILD_NO"
 
     artifacts:
       - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+
+    publishing:
+      app_store_connect:
+        # Uses App Store Connect API key values from Codemagic environment variables.
+        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+        submit_to_testflight: true
+        submit_to_app_store: false
