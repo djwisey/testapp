@@ -36,6 +36,21 @@ workflows:
             exit 1
           fi
 
+      - name: Validate signing inputs and active bundle ID
+        script: |
+          if [ -z "$APP_STORE_CONNECT_PRIVATE_KEY" ]; then
+            echo "APP_STORE_CONNECT_PRIVATE_KEY is missing in Codemagic environment variables"
+            exit 1
+          fi
+          if [ -z "$CERTIFICATE_PRIVATE_KEY" ]; then
+            echo "CERTIFICATE_PRIVATE_KEY is missing in Codemagic environment variables"
+            exit 1
+          fi
+
+          echo "Expected bundle ID: $BUNDLE_ID"
+          echo "Runner target bundle IDs from project file:"
+          grep -n "PRODUCT_BUNDLE_IDENTIFIER" ios/Runner.xcodeproj/project.pbxproj | head -n 8
+
       - name: Configure automatic code signing
         script: |
           keychain initialize
