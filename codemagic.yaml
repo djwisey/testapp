@@ -22,9 +22,6 @@ workflows:
         APP_STORE_CONNECT_ISSUER_ID: 15da2923-51a7-4906-88b1-d177ed1f3940
         # Replace with your real iOS bundle identifier if this is different.
         BUNDLE_ID: com.dylanwiseman.testing
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.dylanwiseman.testing
 
     scripts:
       - name: Flutter clean and dependencies
