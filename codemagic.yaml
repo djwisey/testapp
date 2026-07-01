@@ -25,7 +25,7 @@ workflows:
 
       - name: Verify iOS scheme exists
         script: |
-          xcodebuild -workspace Runner.xcworkspace -list
+          xcodebuild -workspace ios/Runner.xcworkspace -list
 
       - name: Build iOS app (no codesign)
         script: |
