@@ -3,8 +3,15 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 
-void main() {
-  runApp(const StartupIdleApp());
+import 'app.dart';
+import 'repositories/game_repository.dart';
+import 'services/save_service.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final SaveService saveService = SaveService();
+  final GameRepository gameRepository = GameRepository(saveService: saveService);
+  runApp(StartupEmpireApp(gameRepository: gameRepository));
 }
 
 class StartupIdleApp extends StatelessWidget {
