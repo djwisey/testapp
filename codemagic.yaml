@@ -62,8 +62,25 @@ workflows:
 
       - name: Build signed IPA with Codemagic build number
         script: |
+          APP_VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}')
+          APP_BUILD_NAME=${APP_VERSION%%+*}
           BUILD_NO="${PROJECT_BUILD_NUMBER:-$BUILD_NUMBER}"
-          flutter build ipa --release --build-number="$BUILD_NO"
+          SHORT_SHA="${CM_COMMIT:0:7}"
+          if [ -z "$SHORT_SHA" ]; then
+            SHORT_SHA=$(git rev-parse --short HEAD)
+          fi
+
+          if [ -z "$BUILD_NO" ]; then
+            echo "Build number is empty. Set PROJECT_BUILD_NUMBER or BUILD_NUMBER in Codemagic."
+            exit 1
+          fi
+
+          echo "Building iOS with build-name=$APP_BUILD_NAME build-number=$BUILD_NO stamp=${BUILD_NO}-${SHORT_SHA}"
+
+          flutter build ipa --release \
+            --build-name="$APP_BUILD_NAME" \
+            --build-number="$BUILD_NO" \
+            --dart-define=BUILD_STAMP="${BUILD_NO}-${SHORT_SHA}"
 
     artifacts:
       - build/ios/ipa/*.ipa

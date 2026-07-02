@@ -5,6 +5,7 @@ import '../data/game_catalog.dart';
 import '../data/meta_game_catalog.dart';
 import '../models/company_app.dart';
 import '../providers/game_provider.dart';
+import '../utils/build_info.dart';
 import '../widgets/action_card.dart';
 import '../widgets/metric_card.dart';
 import '../widgets/section_card.dart';
@@ -47,6 +48,11 @@ class AppDashboardScreen extends StatelessWidget {
                       Text(
                         game.welcomeBackMessage ?? 'Build software, hire talent, and scale the company.',
                         style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Build $buildStamp',
+                        style: Theme.of(context).textTheme.bodySmall,
                       ),
                     ],
                   ),
