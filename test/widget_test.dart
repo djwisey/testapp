@@ -1,22 +1,34 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:new_test_app/main.dart';
+import 'package:new_test_app/app.dart';
+import 'package:new_test_app/models/company_state.dart';
+import 'package:new_test_app/repositories/game_repository.dart';
+import 'package:new_test_app/services/save_service.dart';
+
+class FakeGameRepository extends GameRepository {
+  FakeGameRepository() : super(saveService: SaveService());
+
+  @override
+  Future<CompanyState> loadState() async {
+    return CompanyState.initial();
+  }
+
+  @override
+  Future<void> saveState(CompanyState state) async {}
+}
 
 void main() {
-  testWidgets('Game dashboard renders key controls', (WidgetTester tester) async {
-    await tester.pumpWidget(const StartupIdleApp());
+  testWidgets('Game shell renders dashboard controls', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      StartupEmpireApp(
+        gameRepository: FakeGameRepository(),
+      ),
+    );
 
-    expect(find.text('Software Company Idle'), findsWidgets);
-    expect(find.text('Company Actions'), findsOneWidget);
-    expect(find.widgetWithText(FilledButton, 'Hire Developer'), findsOneWidget);
-    expect(find.widgetWithText(FilledButton, 'Release App'), findsOneWidget);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Startup Empire'), findsOneWidget);
+    expect(find.byType(NavigationBar), findsOneWidget);
   });
 }
