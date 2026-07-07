@@ -218,6 +218,109 @@ class GameProvider extends ChangeNotifier with WidgetsBindingObserver {
     save();
   }
 
+  void runMarketingCampaign(String appName) {
+    final int appIndex = _state.apps.indexWhere((CompanyApp app) => app.name == appName);
+    if (appIndex == -1) {
+      return;
+    }
+
+    final CompanyApp app = _state.apps[appIndex];
+    final double campaignCost = math.max(250, 120 + (app.users * 0.08) + (app.popularity * 18));
+    if (cash < campaignCost || app.developmentProgress < 100) {
+      return;
+    }
+
+    final int gainedUsers = math.max(25, (app.users * (0.05 + marketingScore * 0.006)).round());
+    final List<CompanyApp> apps = List<CompanyApp>.from(_state.apps);
+    apps[appIndex] = app.copyWith(
+      users: app.users + gainedUsers,
+      popularity: math.min(100, app.popularity + 4.5).toDouble(),
+      lifetimeRevenue: app.lifetimeRevenue,
+    );
+    _state.apps = apps;
+    _state.snapshot = _state.snapshot.copyWith(
+      cash: cash - campaignCost,
+      users: apps.fold<int>(0, (int total, CompanyApp entry) => total + entry.users),
+      marketingScore: marketingScore + 0.8,
+      reputation: math.min(100, reputation + 0.4).toDouble(),
+    );
+    _addNotification('Marketing campaign for ${app.name} gained $gainedUsers users.');
+    _evaluateAchievements();
+    notifyListeners();
+    save();
+  }
+
+  void fixBugs(String appName) {
+    final int appIndex = _state.apps.indexWhere((CompanyApp app) => app.name == appName);
+    if (appIndex == -1) {
+      return;
+    }
+
+    final CompanyApp app = _state.apps[appIndex];
+    if (app.bugCount <= 0 || app.developmentProgress < 100) {
+      return;
+    }
+
+    final double fixCost = math.max(120, app.bugCount * 90 + app.users * 0.015);
+    if (cash < fixCost) {
+      return;
+    }
+
+    final int fixedBugs = math.min(app.bugCount, math.max(1, 2 + _employeeCountMatching('QA Tester')));
+    final List<CompanyApp> apps = List<CompanyApp>.from(_state.apps);
+    apps[appIndex] = app.copyWith(
+      bugCount: app.bugCount - fixedBugs,
+      rating: math.min(100, app.rating + fixedBugs * 1.7).toDouble(),
+    );
+    _state.apps = apps;
+    _state.snapshot = _state.snapshot.copyWith(
+      cash: cash - fixCost,
+      reputation: math.min(100, reputation + fixedBugs * 0.25).toDouble(),
+    );
+    _addNotification('Fixed $fixedBugs bugs in ${app.name}.');
+    _evaluateAchievements();
+    notifyListeners();
+    save();
+  }
+
+  void shipFeatureUpdate(String appName) {
+    final int appIndex = _state.apps.indexWhere((CompanyApp app) => app.name == appName);
+    if (appIndex == -1) {
+      return;
+    }
+
+    final CompanyApp app = _state.apps[appIndex];
+    if (app.developmentProgress < 100) {
+      return;
+    }
+
+    final double updateCost = math.max(400, app.users * 0.035 + app.popularity * 35);
+    if (cash < updateCost) {
+      return;
+    }
+
+    final int nextMinor = _minorVersion(app.version);
+    final int gainedUsers = math.max(40, (app.users * 0.025 + developerProductivity * 12).round());
+    final List<CompanyApp> apps = List<CompanyApp>.from(_state.apps);
+    apps[appIndex] = app.copyWith(
+      version: '1.${nextMinor + 1}.0',
+      users: app.users + gainedUsers,
+      rating: math.min(100, app.rating + 1.2).toDouble(),
+      popularity: math.min(100, app.popularity + 2.2).toDouble(),
+      bugCount: app.bugCount + math.max(1, (3 - _employeeCountMatching('QA Tester')).clamp(0, 3).toInt()),
+    );
+    _state.apps = apps;
+    _state.snapshot = _state.snapshot.copyWith(
+      cash: cash - updateCost,
+      users: apps.fold<int>(0, (int total, CompanyApp entry) => total + entry.users),
+      reputation: math.min(100, reputation + 0.8).toDouble(),
+    );
+    _addNotification('Shipped ${app.name} v1.${nextMinor + 1}.0 with $gainedUsers new users.');
+    _evaluateAchievements();
+    notifyListeners();
+    save();
+  }
+
   void upgradeOffice() {
     if (_state.snapshot.officeLevel >= officeCatalog.length) {
       return;
@@ -517,6 +620,15 @@ class GameProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   int _employeeCountMatching(String query) {
     return _state.employees.where((Employee employee) => employee.role.contains(query)).length;
+  }
+
+
+  int _minorVersion(String version) {
+    final List<String> parts = version.split('.');
+    if (parts.length < 2) {
+      return 0;
+    }
+    return int.tryParse(parts[1]) ?? 0;
   }
 
   String _formatMoney(double amount) {
