@@ -19,7 +19,7 @@ class FakeGameRepository extends GameRepository {
 }
 
 void main() {
-  testWidgets('Game shell renders dashboard controls', (WidgetTester tester) async {
+  testWidgets('Golf caddie shell renders Dale course controls', (WidgetTester tester) async {
     await tester.pumpWidget(
       StartupEmpireApp(
         gameRepository: FakeGameRepository(),
@@ -28,7 +28,8 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    expect(find.text('Startup Empire'), findsOneWidget);
+    expect(find.text('Dale Golf Caddie'), findsOneWidget);
+    expect(find.text('Track shot from current location'), findsOneWidget);
     expect(find.byType(NavigationBar), findsOneWidget);
   });
 }
