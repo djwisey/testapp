@@ -19,7 +19,7 @@ class StartupEmpireApp extends StatelessWidget {
         builder: (BuildContext context, GameProvider gameProvider, Widget? child) {
           return MaterialApp(
             debugShowCheckedModeBanner: false,
-            title: 'Startup Empire',
+            title: 'Dale Golf Caddie',
             theme: StartupEmpireTheme.lightTheme,
             darkTheme: StartupEmpireTheme.darkTheme,
             themeMode: gameProvider.darkMode ? ThemeMode.dark : ThemeMode.light,
