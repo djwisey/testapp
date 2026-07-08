@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../models/golf_models.dart';
 import '../providers/game_provider.dart';
+import '../services/stats_service.dart';
 
 class GameShellScreen extends StatelessWidget {
   const GameShellScreen({super.key});
@@ -60,21 +61,17 @@ class _SetupCard extends StatelessWidget { const _SetupCard({required this.p}); 
     SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Group round'), subtitle: const Text('Local-only group placeholder'), value: p.groupRound, onChanged: (bool v) => p.updateSetup(isGroup: v)),
     FilledButton.icon(onPressed: p.startRound, icon: const Icon(Icons.qr_code_2), label: const Text('Start round + generate share code')),
   ]))); }
-}
 
 class _HeroHole extends StatelessWidget { const _HeroHole({required this.hole, required this.score, required this.toPar}); final Hole hole; final HoleScore score; final int toPar;
   @override Widget build(BuildContext context) => Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
     Text('Hole ${hole.number}', style: Theme.of(context).textTheme.headlineMedium), Text('Par ${hole.par} • ${hole.yards} yd • Stroke ${hole.handicap}'), Wrap(spacing: 8, children: <Widget>[_Chip('Score', '${score.strokes}'), _Chip('Putts', '${score.putts}'), _Chip('Penalties', '${score.penalties}'), _Chip('To par', toPar == 0 ? 'E' : '$toPar')])
   ]))); }
-}
 
 class _GpsCard extends StatelessWidget { const _GpsCard({required this.hole, required this.mock}); final Hole hole; final bool mock;
   @override Widget build(BuildContext context) => Card(child: ListTile(leading: const Icon(Icons.gps_fixed), title: const Text('GPS distances'), subtitle: Text('Front ${(hole.yards * .92).round()} yd • Middle ${hole.yards} yd • Back ${(hole.yards * 1.06).round()} yd${mock ? ' • using mock GPS' : ''}'))); }
-}
 
 class _MapPlaceholder extends StatelessWidget { const _MapPlaceholder({required this.shots}); final List<Shot> shots;
   @override Widget build(BuildContext context) => AspectRatio(aspectRatio: 1.6, child: Card(clipBehavior: Clip.antiAlias, child: CustomPaint(painter: _ShotMapPainter(shots.length), child: Center(child: Text('Course / hole map placeholder\n${shots.length} shot markers with replay line', textAlign: TextAlign.center))))); }
-}
 
 class _ShotControls extends StatelessWidget { const _ShotControls({required this.p}); final GameProvider p;
   @override Widget build(BuildContext context) => Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(children: <Widget>[
@@ -83,7 +80,6 @@ class _ShotControls extends StatelessWidget { const _ShotControls({required this
     FilledButton.icon(onPressed: p.addShot, icon: const Icon(Icons.add_location_alt), label: const Text('Add shot from GPS')),
     for (final Shot s in p.currentShots) ListTile(title: Text('${s.clubName} • ${s.distanceYards} yd'), subtitle: Text('${s.lie} • ${s.result} • ${DateFormat.Hm().format(s.timestamp)}'), trailing: IconButton(icon: const Icon(Icons.delete_outline), onPressed: () => p.deleteShot(s.id))),
   ]))); }
-}
 
 class _ScoreControls extends StatelessWidget { const _ScoreControls({required this.p}); final GameProvider p;
   @override Widget build(BuildContext context) { final HoleScore s = p.currentScore; return Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
