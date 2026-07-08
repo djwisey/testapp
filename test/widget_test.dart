@@ -19,7 +19,7 @@ class FakeGameRepository extends GameRepository {
 }
 
 void main() {
-  testWidgets('Golf caddie shell renders Dale course controls', (WidgetTester tester) async {
+  testWidgets('Golf round tracker shell renders Play setup and tabs', (WidgetTester tester) async {
     await tester.pumpWidget(
       StartupEmpireApp(
         gameRepository: FakeGameRepository(),
@@ -28,8 +28,9 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    expect(find.text('Dale Golf Caddie'), findsOneWidget);
-    expect(find.text('Track shot from current location'), findsOneWidget);
+    expect(find.text('Play'), findsWidgets);
+    expect(find.text('Round setup'), findsOneWidget);
+    expect(find.text('Start round + generate share code'), findsOneWidget);
     expect(find.byType(NavigationBar), findsOneWidget);
   });
 }

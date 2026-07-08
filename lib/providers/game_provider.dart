@@ -1,152 +1,119 @@
-import 'dart:math' as math;
+import 'package:flutter/material.dart';
+import 'package:uuid/uuid.dart';
 
-import 'package:flutter/widgets.dart';
-
+import '../models/golf_models.dart';
 import '../repositories/game_repository.dart';
+import '../services/course_store.dart';
+import '../services/location_service.dart';
+import '../services/mock_social_service.dart';
+import '../services/round_store.dart';
+import '../services/stats_service.dart';
 
-class GolfShot {
-  const GolfShot({
-    required this.hole,
-    required this.club,
-    required this.yards,
-    required this.lie,
-    required this.note,
-  });
-
-  final int hole;
-  final String club;
-  final int yards;
-  final String lie;
-  final String note;
-}
-
-class CourseHole {
-  const CourseHole({
-    required this.number,
-    required this.name,
-    required this.par,
-    required this.yards,
-    required this.strokeIndex,
-    required this.tip,
-    required this.fairwayBend,
-    required this.greenX,
-    required this.greenY,
-  });
-
-  final int number;
-  final String name;
-  final int par;
-  final int yards;
-  final int strokeIndex;
-  final String tip;
-  final double fairwayBend;
-  final double greenX;
-  final double greenY;
-}
-
-class GameProvider extends ChangeNotifier with WidgetsBindingObserver {
+class GameProvider extends ChangeNotifier {
   GameProvider({required this.gameRepository});
-
   final GameRepository gameRepository;
+  final RoundStore _roundStore = RoundStore();
+  final CourseStore _courseStore = CourseStore();
+  final LocationService _locationService = LocationService();
+  final StatsService statsService = StatsService();
+  final MockSocialService _socialService = MockSocialService();
+  final Uuid _uuid = const Uuid();
 
-  bool _isInitialized = false;
-  bool _darkMode = false;
-  bool _soundEnabled = true;
-  int _selectedTabIndex = 0;
-  int _selectedHole = 1;
-  int _shotsThisRound = 0;
-  int _puttsThisRound = 0;
-  double _windMph = 18;
-  double _playerX = 0.28;
-  double _playerY = 0.72;
-  final List<GolfShot> _shots = <GolfShot>[
-    const GolfShot(hole: 1, club: 'Driver', yards: 214, lie: 'Fairway', note: 'Downwind opening tee shot'),
-    const GolfShot(hole: 1, club: '8 iron', yards: 128, lie: 'Green', note: 'Held up in a left-to-right breeze'),
-  ];
-
-  static const List<CourseHole> daleGolfCourse = <CourseHole>[
-    CourseHole(number: 1, name: 'Breiwick', par: 4, yards: 356, strokeIndex: 7, tip: 'Aim at the right half of the fairway and let the wind feed the ball back.', fairwayBend: -0.16, greenX: 0.72, greenY: 0.18),
-    CourseHole(number: 2, name: 'Sound View', par: 3, yards: 162, strokeIndex: 15, tip: 'Club up when the breeze comes over Lerwick harbour.', fairwayBend: 0.04, greenX: 0.62, greenY: 0.22),
-    CourseHole(number: 3, name: 'Dale Burn', par: 4, yards: 382, strokeIndex: 3, tip: 'A controlled tee shot short of the burn leaves the best angle.', fairwayBend: 0.18, greenX: 0.78, greenY: 0.28),
-    CourseHole(number: 4, name: 'Clickimin', par: 5, yards: 487, strokeIndex: 9, tip: 'Treat it as a three-shotter in strong Shetland wind.', fairwayBend: -0.22, greenX: 0.70, greenY: 0.16),
-    CourseHole(number: 5, name: 'Knab', par: 4, yards: 331, strokeIndex: 11, tip: 'Accuracy beats length; the green is easiest from the left side.', fairwayBend: 0.12, greenX: 0.66, greenY: 0.24),
-    CourseHole(number: 6, name: 'Bressay', par: 3, yards: 146, strokeIndex: 17, tip: 'Use the yardage plus wind adjustment rather than the card number.', fairwayBend: -0.02, greenX: 0.58, greenY: 0.20),
-    CourseHole(number: 7, name: 'Gremista', par: 4, yards: 397, strokeIndex: 1, tip: 'The toughest hole: favour the safe centre and accept a longer approach.', fairwayBend: 0.20, greenX: 0.80, greenY: 0.18),
-    CourseHole(number: 8, name: 'Scalloway', par: 4, yards: 344, strokeIndex: 13, tip: 'A hybrid or fairway wood keeps the ball below the breeze.', fairwayBend: -0.12, greenX: 0.69, greenY: 0.25),
-    CourseHole(number: 9, name: 'Dale Home', par: 4, yards: 368, strokeIndex: 5, tip: 'Finish with a committed line at the clubhouse side of the fairway.', fairwayBend: 0.10, greenX: 0.76, greenY: 0.21),
-  ];
-
-  bool get isInitialized => _isInitialized;
-  bool get darkMode => _darkMode;
-  bool get soundEnabled => _soundEnabled;
-  int get selectedTabIndex => _selectedTabIndex;
-  int get selectedHole => _selectedHole;
-  int get shotsThisRound => _shotsThisRound;
-  int get puttsThisRound => _puttsThisRound;
-  double get windMph => _windMph;
-  double get playerX => _playerX;
-  double get playerY => _playerY;
-  List<GolfShot> get shots => List<GolfShot>.unmodifiable(_shots);
-  CourseHole get currentHole => daleGolfCourse[_selectedHole - 1];
-  int get scoreToPar => _shotsThisRound - daleGolfCourse.take(_selectedHole).fold<int>(0, (int total, CourseHole hole) => total + hole.par);
-  double get distanceToPinYards {
-    final double dx = currentHole.greenX - _playerX;
-    final double dy = currentHole.greenY - _playerY;
-    return math.sqrt((dx * dx) + (dy * dy)) * currentHole.yards;
-  }
+  bool darkMode = false;
+  int selectedTabIndex = 0;
+  int currentHoleNumber = 1;
+  List<GolfCourse> courses = CourseStore().loadSeedCourses();
+  List<Club> clubs = CourseStore().defaultClubs();
+  UserProfile profile = UserProfile.defaultProfile();
+  GolfRound? activeRound;
+  List<GolfRound> completedRounds = <GolfRound>[];
+  List<Friend> friends = MockSocialService().friends();
+  List<SocialPost> posts = MockSocialService().seedPosts();
+  String selectedCourseId = 'dale';
+  String selectedTee = 'White';
+  ScoringMode selectedMode = ScoringMode.strokePlay;
+  bool groupRound = false;
+  String selectedLie = 'Fairway';
+  String selectedResult = 'Good';
+  String selectedClubId = '7i';
+  bool lastGpsWasMock = false;
 
   Future<void> initialize() async {
-    if (_isInitialized) {
-      return;
-    }
-    _isInitialized = true;
-    WidgetsBinding.instance.addObserver(this);
+    courses = _courseStore.loadSeedCourses();
+    clubs = _courseStore.defaultClubs();
+    friends = _socialService.friends();
+    posts = _socialService.seedPosts();
+    profile = await _roundStore.loadProfile();
+    activeRound = await _roundStore.loadActiveRound();
+    completedRounds = await _roundStore.loadCompletedRounds();
     notifyListeners();
   }
 
-  void selectTab(int index) {
-    _selectedTabIndex = index;
+  GolfCourse get selectedCourse => courses.firstWhere((GolfCourse c) => c.id == selectedCourseId);
+  GolfCourse get activeCourse => courses.firstWhere((GolfCourse c) => c.id == (activeRound?.courseId ?? selectedCourseId));
+  Hole get currentHole => activeCourse.holes[currentHoleNumber - 1];
+  HoleScore get currentScore => activeRound?.scores.firstWhere((HoleScore s) => s.holeNumber == currentHoleNumber) ?? HoleScore(holeNumber: currentHoleNumber);
+  List<Shot> get currentShots => activeRound?.shots.where((Shot s) => s.holeNumber == currentHoleNumber).toList() ?? <Shot>[];
+  StatsSummary get stats => statsService.summarize(completedRounds);
+  int get relativeToPar => (activeRound?.scores ?? const <HoleScore>[]).fold(0, (int total, HoleScore score) {
+    if (score.strokes == 0) return total;
+    final Hole hole = activeCourse.holes[score.holeNumber - 1];
+    return total + score.strokes - hole.par;
+  });
+
+  void selectTab(int index) { selectedTabIndex = index; notifyListeners(); }
+  void updateSetup({String? courseId, String? tee, ScoringMode? mode, bool? isGroup}) { selectedCourseId = courseId ?? selectedCourseId; selectedTee = tee ?? selectedTee; selectedMode = mode ?? selectedMode; groupRound = isGroup ?? groupRound; notifyListeners(); }
+  void updateShotOptions({String? clubId, String? lie, String? result}) { selectedClubId = clubId ?? selectedClubId; selectedLie = lie ?? selectedLie; selectedResult = result ?? selectedResult; notifyListeners(); }
+  void toggleDarkMode() { darkMode = !darkMode; notifyListeners(); }
+
+  Future<void> startRound() async {
+    final GolfCourse course = selectedCourse;
+    activeRound = GolfRound(id: _uuid.v4(), courseId: course.id, courseName: course.name, tee: selectedTee, scoringMode: selectedMode, isGroupRound: groupRound, createdAt: DateTime.now(), status: RoundStatus.inProgress, shareCode: 'QR-${DateTime.now().millisecondsSinceEpoch.toString().substring(6)}', scores: course.holes.map((Hole h) => HoleScore(holeNumber: h.number)).toList(), shots: const <Shot>[]);
+    currentHoleNumber = 1;
+    await _roundStore.saveActiveRound(activeRound);
     notifyListeners();
   }
 
-  void selectHole(int hole) {
-    _selectedHole = hole.clamp(1, daleGolfCourse.length).toInt();
-    _playerX = 0.26;
-    _playerY = 0.76;
+  Future<void> updateCurrentScore({int? strokes, int? putts, int? penalties, bool? fir, bool? gir, bool? sandSave, bool? upAndDown, String? matchResult}) async {
+    final GolfRound? round = activeRound;
+    if (round == null) return;
+    final List<HoleScore> scores = round.scores.map((HoleScore score) => score.holeNumber == currentHoleNumber ? score.copyWith(strokes: strokes, putts: putts, penalties: penalties, fairwayHit: fir, greenInRegulation: gir, sandSave: sandSave, upAndDown: upAndDown, matchResult: matchResult) : score).toList();
+    activeRound = round.copyWith(scores: scores);
+    await _roundStore.saveActiveRound(activeRound);
     notifyListeners();
   }
 
-  void addShot({String club = '7 iron', int yards = 150, String lie = 'Fairway', String note = 'Tracked on course'}) {
-    _shots.insert(0, GolfShot(hole: _selectedHole, club: club, yards: yards, lie: lie, note: note));
-    _shotsThisRound += 1;
-    if (club.toLowerCase().contains('putter')) {
-      _puttsThisRound += 1;
-    }
-    _playerX = (_playerX + ((currentHole.greenX - _playerX) * 0.42)).clamp(0.08, 0.92).toDouble();
-    _playerY = (_playerY + ((currentHole.greenY - _playerY) * 0.42)).clamp(0.08, 0.92).toDouble();
+  Future<void> addShot() async {
+    final GolfRound? round = activeRound;
+    if (round == null) await startRound();
+    final GolfRound live = activeRound!;
+    final Club club = clubs.firstWhere((Club c) => c.id == selectedClubId);
+    final List<Shot> holeShots = live.shots.where((Shot s) => s.holeNumber == currentHoleNumber).toList();
+    final Shot? previous = holeShots.isEmpty ? null : holeShots.last;
+    final GpsPoint point = await _locationService.currentPoint(fallbackLat: currentHole.teeLat, fallbackLng: currentHole.teeLng);
+    lastGpsWasMock = point.isMock;
+    final int yards = previous == null ? club.averageYards : _locationService.distanceYards(previous.latitude, previous.longitude, point.latitude, point.longitude);
+    final Shot shot = Shot(id: _uuid.v4(), holeNumber: currentHoleNumber, clubId: club.id, clubName: club.name, latitude: point.latitude, longitude: point.longitude, distanceYards: yards, lie: selectedLie, result: selectedResult, timestamp: DateTime.now());
+    activeRound = live.copyWith(shots: <Shot>[...live.shots, shot]);
+    await _roundStore.saveActiveRound(activeRound);
     notifyListeners();
   }
 
-  void updateWind(double value) {
-    _windMph = value.clamp(0, 45).toDouble();
+  Future<void> deleteShot(String id) async { final GolfRound? r = activeRound; if (r == null) return; activeRound = r.copyWith(shots: r.shots.where((Shot s) => s.id != id).toList()); await _roundStore.saveActiveRound(activeRound); notifyListeners(); }
+  Future<void> editShot(Shot shot) async { final GolfRound? r = activeRound; if (r == null) return; activeRound = r.copyWith(shots: r.shots.map((Shot s) => s.id == shot.id ? shot : s).toList()); await _roundStore.saveActiveRound(activeRound); notifyListeners(); }
+  void previousHole() { currentHoleNumber = (currentHoleNumber - 1).clamp(1, activeCourse.holes.length); notifyListeners(); }
+  void nextHole() { currentHoleNumber = (currentHoleNumber + 1).clamp(1, activeCourse.holes.length); notifyListeners(); }
+
+  Future<void> completeRound() async {
+    final GolfRound? round = activeRound;
+    if (round == null) return;
+    final GolfRound done = round.copyWith(status: RoundStatus.completed, completedAt: DateTime.now());
+    completedRounds = <GolfRound>[done, ...completedRounds];
+    activeRound = null;
+    await _roundStore.saveCompletedRounds(completedRounds);
+    await _roundStore.saveActiveRound(null);
+    posts = <SocialPost>[SocialPost(id: _uuid.v4(), author: profile.name, text: 'Shared ${done.totalStrokes} at ${done.courseName} (${done.shareCode}).', createdAt: DateTime.now(), likes: 0, comments: const <String>['Nice round!']), ...posts];
+    selectedTabIndex = 1;
     notifyListeners();
-  }
-
-  void toggleDarkMode() {
-    _darkMode = !_darkMode;
-    notifyListeners();
-  }
-
-  void toggleSound() {
-    _soundEnabled = !_soundEnabled;
-    notifyListeners();
-  }
-
-  Future<void> save() async {}
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
   }
 }
