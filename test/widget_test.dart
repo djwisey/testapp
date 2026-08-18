@@ -1,13 +1,20 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
 
-import 'package:new_test_app/app.dart';
 import 'package:new_test_app/models/workflow_models.dart';
 import 'package:new_test_app/providers/business_provider.dart';
+import 'package:new_test_app/screens/game_shell_screen.dart';
 import 'package:new_test_app/services/timesheet_service.dart';
 
 void main() {
   testWidgets('workforce shell renders home and job tabs', (WidgetTester tester) async {
-    await tester.pumpWidget(const FieldFlowApp());
+    await tester.pumpWidget(
+      ChangeNotifierProvider<BusinessProvider>(
+        create: (_) => BusinessProvider(),
+        child: const MaterialApp(home: WorkforceShellScreen()),
+      ),
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('Home'), findsWidgets);

@@ -277,6 +277,7 @@ class TimesheetEntry {
     required this.approvalStatus,
     required this.createdAt,
     required this.modifiedAt,
+    this.customJobLabel,
   });
 
   final String id;
@@ -294,6 +295,7 @@ class TimesheetEntry {
   final String approvalStatus;
   final DateTime createdAt;
   final DateTime modifiedAt;
+  final String? customJobLabel;
 
   Map<String, dynamic> toMap() => <String, dynamic>{
         'id': id,
@@ -311,6 +313,7 @@ class TimesheetEntry {
         'approvalStatus': approvalStatus,
         'createdAt': createdAt.toIso8601String(),
         'modifiedAt': modifiedAt.toIso8601String(),
+        'customJobLabel': customJobLabel,
       };
 
   factory TimesheetEntry.fromMap(Map<String, dynamic> map) => TimesheetEntry(

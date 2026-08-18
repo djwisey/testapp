@@ -17,6 +17,7 @@ class BusinessProvider extends ChangeNotifier {
   }
 
   int selectedTabIndex = 0;
+  bool isAuthenticated = false;
 
   final List<Role> roles = <Role>[
     const Role(
@@ -41,24 +42,21 @@ class BusinessProvider extends ChangeNotifier {
   ];
 
   User currentUser = const User(
-    id: 'emp-001',
-    name: 'Aiden Hart',
-    email: 'aiden@northline.local',
+    id: '',
+    name: 'Guest',
+    email: '',
     roleId: 'employee',
-    permissions: <Permission>{
-      Permission.viewJobs,
-      Permission.viewBilling,
-    },
+    permissions: <Permission>{Permission.viewJobs},
   );
 
   final List<Customer> customers = <Customer>[
     const Customer(
       id: 'cust-1',
-      name: 'Northline Builders',
-      contactName: 'Mina Ross',
-      phone: '0400 111 222',
-      email: 'mina@northline.com.au',
-      address: '21 Riverside Ave, Perth',
+      name: 'Perth City Council',
+      contactName: 'Rachel Moore',
+      phone: '0400 200 300',
+      email: 'contracts@perth.wa.gov.au',
+      address: '27 St Georges Terrace, Perth',
     ),
   ];
 
@@ -66,7 +64,7 @@ class BusinessProvider extends ChangeNotifier {
     const Employee(
       id: 'emp-001',
       name: 'Aiden Hart',
-      email: 'aiden@northline.local',
+      email: 'worker@emnplant.com',
       roleId: 'employee',
       permissions: <Permission>{Permission.viewJobs, Permission.viewBilling},
       employeeNumber: 'EMP-001',
@@ -75,8 +73,8 @@ class BusinessProvider extends ChangeNotifier {
     ),
     const Employee(
       id: 'emp-002',
-      name: 'Jordan Lee',
-      email: 'jordan@northline.local',
+      name: 'Dylan Wiseman',
+      email: 'dylan@emnplant.com',
       roleId: 'manager',
       permissions: <Permission>{
         Permission.viewJobs,
@@ -95,33 +93,65 @@ class BusinessProvider extends ChangeNotifier {
     Job(
       id: 'job-101',
       customerId: 'cust-1',
-      referenceNumber: 'JOB-101',
-      title: 'Boiler service & check',
-      description: 'Routine maintenance and efficiency inspection.',
-      siteAddress: '21 Riverside Ave, Perth',
-      status: 'Scheduled',
-      workflowStage: 'Scheduled',
-      scheduledDate: DateTime.now().add(const Duration(days: 1)),
-      assignedEmployeeIds: <String>['emp-001'],
-      notes: 'Customer requires a morning service visit.',
+      referenceNumber: 'EMN-101',
+      title: 'Excavation – Miller St',
+      description: 'Site excavation for residential foundations.',
+      siteAddress: '14 Miller St, Perth',
+      status: 'In Progress',
+      workflowStage: 'In Progress',
+      scheduledDate: DateTime.now(),
+      assignedEmployeeIds: <String>['emp-001', 'emp-002'],
+      notes: '',
       billingStatus: 'Pending',
-      createdAt: DateTime.now().subtract(const Duration(days: 3)),
+      createdAt: DateTime.now().subtract(const Duration(days: 2)),
       updatedAt: DateTime.now(),
     ),
     Job(
       id: 'job-102',
       customerId: 'cust-1',
-      referenceNumber: 'JOB-102',
-      title: 'Water pump replacement',
-      description: 'Replace failed pump and verify system pressure.',
-      siteAddress: '9 Tower Lane, Perth',
+      referenceNumber: 'EMN-102',
+      title: 'Site Clearing – Eastern Ave',
+      description: 'Clear and level site for new commercial development.',
+      siteAddress: '88 Eastern Ave, Perth',
+      status: 'Scheduled',
+      workflowStage: 'Scheduled',
+      scheduledDate: DateTime.now().add(const Duration(days: 2)),
+      assignedEmployeeIds: <String>['emp-001'],
+      notes: '',
+      billingStatus: 'Pending',
+      createdAt: DateTime.now().subtract(const Duration(days: 1)),
+      updatedAt: DateTime.now(),
+    ),
+    Job(
+      id: 'job-103',
+      customerId: 'cust-1',
+      referenceNumber: 'EMN-103',
+      title: 'Trench Work – Riverside Dr',
+      description: 'Trench excavation for stormwater drainage.',
+      siteAddress: '33 Riverside Dr, Perth',
+      status: 'Scheduled',
+      workflowStage: 'New',
+      scheduledDate: DateTime.now().add(const Duration(days: 5)),
+      assignedEmployeeIds: <String>[],
+      notes: 'Requires safety officer on site.',
+      billingStatus: 'Pending',
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    ),
+    Job(
+      id: 'job-104',
+      customerId: 'cust-1',
+      referenceNumber: 'EMN-104',
+      title: 'Machine Servicing – Workshop',
+      description: 'Routine service and inspection for plant fleet.',
+      siteAddress: 'EMN Workshop, Malaga',
       status: 'In Progress',
       workflowStage: 'In Progress',
       scheduledDate: DateTime.now(),
-      assignedEmployeeIds: <String>['emp-001', 'emp-002'],
-      notes: 'Follow-up required after pressure test.',
+      assignedEmployeeIds: <String>['emp-002'],
+      notes: '',
       billingStatus: 'Ready for review',
-      createdAt: DateTime.now().subtract(const Duration(days: 5)),
+      createdAt: DateTime.now().subtract(const Duration(days: 4)),
       updatedAt: DateTime.now(),
     ),
   ];
@@ -133,6 +163,87 @@ class BusinessProvider extends ChangeNotifier {
   void selectTab(int index) {
     selectedTabIndex = index;
     notifyListeners();
+  }
+
+  bool signInWithCredentials(String email, String password) {
+    const Map<String, List<String>> accounts = <String, List<String>>{
+      'dylan@emnplant.com': <String>['EMNManager1', 'emp-002', 'Dylan Wiseman', 'manager'],
+      'worker@emnplant.com': <String>['EMNWorker1', 'emp-001', 'Aiden Hart', 'employee'],
+    };
+    final List<String>? creds = accounts[email.toLowerCase().trim()];
+    if (creds == null || creds[0] != password) return false;
+    currentUser = User(
+      id: creds[1],
+      name: creds[2],
+      email: email.toLowerCase().trim(),
+      roleId: creds[3],
+      permissions: creds[3] == 'manager'
+          ? <Permission>{
+              Permission.viewJobs,
+              Permission.editJobs,
+              Permission.approveTimesheets,
+              Permission.viewBilling,
+              Permission.manageEmployees,
+            }
+          : <Permission>{Permission.viewJobs, Permission.viewBilling},
+    );
+    isAuthenticated = true;
+    selectedTabIndex = 0;
+    notifyListeners();
+    return true;
+  }
+
+  void signOut() {
+    isAuthenticated = false;
+    selectedTabIndex = 0;
+    currentUser = const User(
+      id: '',
+      name: 'Guest',
+      email: '',
+      roleId: 'employee',
+      permissions: <Permission>{Permission.viewJobs},
+    );
+    timesheetEntries = <TimesheetEntry>[];
+    activeTimers = <ActiveTimer>[];
+    billingEntries = <BillingEntry>[];
+    notifyListeners();
+  }
+
+  void addManualEntry({
+    required double hours,
+    required DateTime date,
+    required String jobId,
+    String? customJobLabel,
+    String notes = '',
+  }) {
+    final DateTime now = DateTime.now();
+    final TimesheetEntry entry = TimesheetEntry(
+      id: _uuid.v4(),
+      employeeId: currentUser.id,
+      jobId: jobId,
+      date: date,
+      startTime: date,
+      endTime: date.add(Duration(minutes: (hours * 60).round())),
+      durationMinutes: (hours * 60).round(),
+      workType: customJobLabel ?? _jobTitle(jobId),
+      notes: notes,
+      billable: true,
+      quantityHours: hours,
+      billingRate: 0,
+      approvalStatus: 'Pending',
+      createdAt: now,
+      modifiedAt: now,
+      customJobLabel: customJobLabel,
+    );
+    timesheetEntries = <TimesheetEntry>[entry, ...timesheetEntries];
+    notifyListeners();
+  }
+
+  String _jobTitle(String jobId) {
+    for (final Job job in jobs) {
+      if (job.id == jobId) return job.title;
+    }
+    return 'General';
   }
 
   bool hasPermission(Permission permission) {
