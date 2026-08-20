@@ -246,6 +246,75 @@ class BusinessProvider extends ChangeNotifier {
     return 'General';
   }
 
+  String nextJobReference() {
+    int max = 100;
+    for (final Job j in jobs) {
+      final int? num = int.tryParse(j.referenceNumber.replaceAll('EMN-', ''));
+      if (num != null && num > max) max = num;
+    }
+    return 'EMN-${max + 1}';
+  }
+
+  void addJob({
+    required String title,
+    required String referenceNumber,
+    required String siteAddress,
+    String description = '',
+    required DateTime scheduledDate,
+    String status = 'New',
+    String notes = '',
+  }) {
+    jobs.add(Job(
+      id: _uuid.v4(),
+      customerId: customers.isNotEmpty ? customers.first.id : '',
+      referenceNumber: referenceNumber,
+      title: title,
+      description: description,
+      siteAddress: siteAddress,
+      status: status,
+      workflowStage: status,
+      scheduledDate: scheduledDate,
+      assignedEmployeeIds: <String>[],
+      notes: notes,
+      billingStatus: 'Pending',
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    ));
+    notifyListeners();
+  }
+
+  void updateJob(Job updatedJob) {
+    final int index = jobs.indexWhere((Job j) => j.id == updatedJob.id);
+    if (index == -1) return;
+    jobs[index] = updatedJob;
+    notifyListeners();
+  }
+
+  void approveEntry(String entryId) {
+    timesheetEntries = timesheetEntries.map((TimesheetEntry e) {
+      if (e.id != entryId) return e;
+      return TimesheetEntry(
+        id: e.id,
+        employeeId: e.employeeId,
+        jobId: e.jobId,
+        date: e.date,
+        startTime: e.startTime,
+        endTime: e.endTime,
+        durationMinutes: e.durationMinutes,
+        workType: e.workType,
+        notes: e.notes,
+        billable: e.billable,
+        quantityHours: e.quantityHours,
+        billingRate: e.billingRate,
+        approvalStatus: 'Approved',
+        createdAt: e.createdAt,
+        modifiedAt: DateTime.now(),
+        customJobLabel: e.customJobLabel,
+      );
+    }).toList();
+    notifyListeners();
+  }
+
   bool hasPermission(Permission permission) {
     return currentUser.permissions.contains(permission);
   }

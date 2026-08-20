@@ -111,11 +111,38 @@ class HomeScreen extends StatelessWidget {
 class JobsScreen extends StatelessWidget {
   const JobsScreen({super.key});
 
+  void _showJobForm(BuildContext context, {Job? editJob}) {
+    final BusinessProvider provider = context.read<BusinessProvider>();
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (BuildContext sheetContext) => ChangeNotifierProvider<BusinessProvider>.value(
+        value: provider,
+        child: _JobFormSheet(
+          editJob: editJob,
+          suggestedReference: editJob == null ? provider.nextJobReference() : '',
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final BusinessProvider provider = context.watch<BusinessProvider>();
+    final bool isManager = provider.hasPermission(Permission.editJobs);
     return _Frame(
       title: 'Jobs',
+      action: isManager
+          ? IconButton(
+              icon: const Icon(Icons.add_circle_outline, size: 28),
+              tooltip: 'Add job',
+              onPressed: () => _showJobForm(context),
+            )
+          : null,
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: <Widget>[
@@ -126,23 +153,57 @@ class JobsScreen extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    Text(job.title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 4),
-                    Text(job.referenceNumber),
+                    Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: Text(
+                            job.title,
+                            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                        if (isManager)
+                          IconButton(
+                            icon: const Icon(Icons.edit_outlined),
+                            tooltip: 'Edit job',
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                            onPressed: () => _showJobForm(context, editJob: job),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      job.referenceNumber,
+                      style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                    ),
+                    if (job.description.isNotEmpty) ...<Widget>[
+                      const SizedBox(height: 6),
+                      Text(job.description),
+                    ],
                     const SizedBox(height: 8),
-                    Text(job.description),
+                    Text(job.siteAddress, style: const TextStyle(fontWeight: FontWeight.w500)),
                     const SizedBox(height: 12),
                     Row(
                       children: <Widget>[
                         _Pill(job.status),
                         const SizedBox(width: 8),
-                        _Pill(job.workflowStage),
+                        if (job.workflowStage != job.status) _Pill(job.workflowStage),
                       ],
                     ),
                     const SizedBox(height: 8),
-                    Text('Assigned: ${job.assignedEmployeeIds.length} crew members'),
+                    Text(
+                      'Assigned: ${job.assignedEmployeeIds.length} crew  •  ${DateFormat('d MMM y').format(job.scheduledDate)}',
+                      style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                    ),
                   ],
                 ),
+              ),
+            ),
+          if (provider.jobs.isEmpty)
+            const Card(
+              child: ListTile(
+                title: Text('No jobs yet'),
+                subtitle: Text('Tap + to add the first job.'),
               ),
             ),
         ],
@@ -151,8 +212,17 @@ class JobsScreen extends StatelessWidget {
   }
 }
 
-class TimesheetScreen extends StatelessWidget {
+class TimesheetScreen extends StatefulWidget {
   const TimesheetScreen({super.key});
+
+  @override
+  State<TimesheetScreen> createState() => _TimesheetScreenState();
+}
+
+enum _TimesheetView { mine, team }
+
+class _TimesheetScreenState extends State<TimesheetScreen> {
+  _TimesheetView _view = _TimesheetView.mine;
 
   void _showAddEntry(BuildContext context) {
     final BusinessProvider provider = context.read<BusinessProvider>();
@@ -173,7 +243,19 @@ class TimesheetScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final BusinessProvider provider = context.watch<BusinessProvider>();
-    final double hours = provider.totalHoursForEmployee(provider.currentUser.id);
+    final bool isManager = provider.hasPermission(Permission.approveTimesheets);
+
+    final List<TimesheetEntry> entries = _view == _TimesheetView.mine
+        ? provider.timesheetEntries
+            .where((TimesheetEntry e) => e.employeeId == provider.currentUser.id)
+            .toList()
+        : provider.timesheetEntries;
+
+    final double hours = entries.fold<double>(
+      0,
+      (double t, TimesheetEntry e) => t + e.quantityHours,
+    );
+
     return _Frame(
       title: 'Timesheet',
       action: IconButton(
@@ -184,10 +266,33 @@ class TimesheetScreen extends StatelessWidget {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: <Widget>[
+          if (isManager)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: SegmentedButton<_TimesheetView>(
+                segments: const <ButtonSegment<_TimesheetView>>[
+                  ButtonSegment<_TimesheetView>(
+                    value: _TimesheetView.mine,
+                    label: Text('My Hours'),
+                    icon: Icon(Icons.person_outline),
+                  ),
+                  ButtonSegment<_TimesheetView>(
+                    value: _TimesheetView.team,
+                    label: Text('Team Hours'),
+                    icon: Icon(Icons.group_outlined),
+                  ),
+                ],
+                selected: <_TimesheetView>{_view},
+                onSelectionChanged: (Set<_TimesheetView> v) =>
+                    setState(() => _view = v.first),
+              ),
+            ),
           Card(
             child: ListTile(
               leading: const Icon(Icons.access_time),
-              title: const Text('Total hours logged'),
+              title: Text(
+                _view == _TimesheetView.mine ? 'Total hours logged' : 'Team total',
+              ),
               trailing: Text(
                 '${hours.toStringAsFixed(1)} hrs',
                 style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
@@ -195,38 +300,14 @@ class TimesheetScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          for (final TimesheetEntry entry in provider.timesheetEntries)
-            Card(
-              child: ListTile(
-                title: Text(
-                  _entryJobLabel(provider, entry),
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-                subtitle: Text(
-                  '${DateFormat('EEE d MMM').format(entry.date)}  •  ${entry.quantityHours.toStringAsFixed(1)} hrs',
-                ),
-                trailing: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: entry.approvalStatus == 'Approved'
-                        ? Colors.green.shade100
-                        : Colors.orange.shade100,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    entry.approvalStatus,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: entry.approvalStatus == 'Approved'
-                          ? Colors.green.shade800
-                          : Colors.orange.shade800,
-                    ),
-                  ),
-                ),
-              ),
+          for (final TimesheetEntry entry in entries)
+            _TimesheetEntryCard(
+              entry: entry,
+              provider: provider,
+              showEmployee: _view == _TimesheetView.team,
+              isManager: isManager,
             ),
-          if (provider.timesheetEntries.isEmpty)
+          if (entries.isEmpty)
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(28),
@@ -358,6 +439,13 @@ class _Pill extends StatelessWidget {
       child: Text(label),
     );
   }
+}
+
+String _employeeName(BusinessProvider provider, String employeeId) {
+  for (final Employee emp in provider.employees) {
+    if (emp.id == employeeId) return emp.name;
+  }
+  return 'Unknown';
 }
 
 String _entryJobLabel(BusinessProvider provider, TimesheetEntry entry) {
@@ -535,5 +623,274 @@ class _AddEntrySheetState extends State<_AddEntrySheet> {
       ),
     );
   }
+}
+
+class _TimesheetEntryCard extends StatelessWidget {
+  const _TimesheetEntryCard({
+    required this.entry,
+    required this.provider,
+    required this.showEmployee,
+    required this.isManager,
+  });
+
+  final TimesheetEntry entry;
+  final BusinessProvider provider;
+  final bool showEmployee;
+  final bool isManager;
+
+  @override
+  Widget build(BuildContext context) {
+    final String subtitle = <String>[
+      if (showEmployee) _employeeName(provider, entry.employeeId),
+      DateFormat('EEE d MMM').format(entry.date),
+      '${entry.quantityHours.toStringAsFixed(1)} hrs',
+    ].join('  \u2022  ');
+
+    final Widget trailing;
+    if (entry.approvalStatus == 'Approved') {
+      trailing = Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.green.shade100,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          'Approved',
+          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.green.shade800),
+        ),
+      );
+    } else if (isManager) {
+      trailing = FilledButton.tonal(
+        style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
+        onPressed: () => provider.approveEntry(entry.id),
+        child: const Text('Approve', style: TextStyle(fontSize: 12)),
+      );
+    } else {
+      trailing = Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.orange.shade100,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          'Pending',
+          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.orange.shade800),
+        ),
+      );
+    }
+
+    return Card(
+      child: ListTile(
+        title: Text(
+          _entryJobLabel(provider, entry),
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        subtitle: Text(subtitle),
+        trailing: trailing,
+      ),
+    );
+  }
+}
+
+class _JobFormSheet extends StatefulWidget {
+  const _JobFormSheet({this.editJob, this.suggestedReference = ''});
+
+  final Job? editJob;
+  final String suggestedReference;
+
+  @override
+  State<_JobFormSheet> createState() => _JobFormSheetState();
+}
+
+class _JobFormSheetState extends State<_JobFormSheet> {
+  late final TextEditingController _titleCtrl;
+  late final TextEditingController _refCtrl;
+  late final TextEditingController _addressCtrl;
+  late final TextEditingController _descCtrl;
+  late final TextEditingController _notesCtrl;
+  late DateTime _scheduledDate;
+  late String _status;
+  String? _error;
+
+  static const List<String> _statusOptions = <String>[
+    'New',
+    'Scheduled',
+    'In Progress',
+    'Completed',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    final Job? job = widget.editJob;
+    _titleCtrl = TextEditingController(text: job?.title ?? '');
+    _refCtrl = TextEditingController(text: job?.referenceNumber ?? widget.suggestedReference);
+    _addressCtrl = TextEditingController(text: job?.siteAddress ?? '');
+    _descCtrl = TextEditingController(text: job?.description ?? '');
+    _notesCtrl = TextEditingController(text: job?.notes ?? '');
+    _scheduledDate = job?.scheduledDate ?? DateTime.now().add(const Duration(days: 1));
+    _status = job?.status ?? 'New';
+  }
+
+  @override
+  void dispose() {
+    _titleCtrl.dispose();
+    _refCtrl.dispose();
+    _addressCtrl.dispose();
+    _descCtrl.dispose();
+    _notesCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickDate() async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _scheduledDate,
+      firstDate: DateTime.now().subtract(const Duration(days: 30)),
+      lastDate: DateTime.now().add(const Duration(days: 730)),
+    );
+    if (picked != null) setState(() => _scheduledDate = picked);
+  }
+
+  void _submit() {
+    if (_titleCtrl.text.trim().isEmpty) {
+      setState(() => _error = 'Job title is required.');
+      return;
+    }
+    if (_addressCtrl.text.trim().isEmpty) {
+      setState(() => _error = 'Site address is required.');
+      return;
+    }
+    final BusinessProvider provider = context.read<BusinessProvider>();
+    if (widget.editJob != null) {
+      provider.updateJob(Job(
+        id: widget.editJob!.id,
+        customerId: widget.editJob!.customerId,
+        referenceNumber: _refCtrl.text.trim(),
+        title: _titleCtrl.text.trim(),
+        description: _descCtrl.text.trim(),
+        siteAddress: _addressCtrl.text.trim(),
+        status: _status,
+        workflowStage: _status,
+        scheduledDate: _scheduledDate,
+        assignedEmployeeIds: widget.editJob!.assignedEmployeeIds,
+        notes: _notesCtrl.text.trim(),
+        billingStatus: widget.editJob!.billingStatus,
+        createdAt: widget.editJob!.createdAt,
+        updatedAt: DateTime.now(),
+      ));
+    } else {
+      provider.addJob(
+        title: _titleCtrl.text.trim(),
+        referenceNumber: _refCtrl.text.trim(),
+        siteAddress: _addressCtrl.text.trim(),
+        description: _descCtrl.text.trim(),
+        scheduledDate: _scheduledDate,
+        status: _status,
+        notes: _notesCtrl.text.trim(),
+      );
+    }
+    Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isEdit = widget.editJob != null;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(24, 20, 24, MediaQuery.of(context).viewInsets.bottom + 24),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: Text(
+                    isEdit ? 'Edit Job' : 'New Job',
+                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _titleCtrl,
+              textCapitalization: TextCapitalization.words,
+              decoration: _decor('Job title *'),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: TextField(
+                    controller: _refCtrl,
+                    decoration: _decor('Reference #'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    initialValue: _status,
+                    decoration: _decor('Status'),
+                    items: _statusOptions
+                        .map((String s) => DropdownMenuItem<String>(value: s, child: Text(s)))
+                        .toList(),
+                    onChanged: (String? v) => setState(() => _status = v ?? _status),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _addressCtrl,
+              decoration: _decor('Site address *'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _descCtrl,
+              decoration: _decor('Description (optional)'),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.calendar_today_outlined),
+              label: Text('Scheduled: ${DateFormat('EEE d MMM y').format(_scheduledDate)}'),
+              style: OutlinedButton.styleFrom(alignment: Alignment.centerLeft),
+              onPressed: _pickDate,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _notesCtrl,
+              decoration: _decor('Notes (optional)'),
+            ),
+            if (_error != null) ...<Widget>[
+              const SizedBox(height: 8),
+              Text(_error!, style: const TextStyle(color: Colors.red, fontSize: 13)),
+            ],
+            const SizedBox(height: 20),
+            FilledButton(
+              onPressed: _submit,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Text(
+                  isEdit ? 'Save Changes' : 'Create Job',
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  InputDecoration _decor(String label) => InputDecoration(
+        labelText: label,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+      );
 }
 
