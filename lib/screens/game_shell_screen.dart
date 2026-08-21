@@ -35,8 +35,8 @@ class WorkforceShellScreen extends StatelessWidget {
         onDestinationSelected: context.read<BusinessProvider>().selectTab,
         destinations: const <NavigationDestination>[
           NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
+            icon: Icon(Icons.calendar_month_outlined),
+            selectedIcon: Icon(Icons.calendar_month),
             label: 'Home',
           ),
           NavigationDestination(
@@ -89,89 +89,173 @@ class _DataStatusBanner extends StatelessWidget {
   }
 }
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  DateTime _selectedDate = DateUtils.dateOnly(DateTime.now());
+
+  Future<void> _pickDate() async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime.now().subtract(const Duration(days: 365)),
+      lastDate: DateTime.now().add(const Duration(days: 730)),
+    );
+    if (picked != null) {
+      setState(() => _selectedDate = DateUtils.dateOnly(picked));
+    }
+  }
+
+  void _moveDate(int days) {
+    setState(() => _selectedDate = _selectedDate.add(Duration(days: days)));
+  }
 
   @override
   Widget build(BuildContext context) {
     final BusinessProvider provider = context.watch<BusinessProvider>();
-    final Job? activeJob = provider.jobs.isNotEmpty
-        ? provider.jobs.first
-        : null;
-    final ActiveTimer? runningTimer = provider.activeTimers.isNotEmpty
-        ? provider.activeTimers.first
-        : null;
+    final bool isManager = provider.hasPermission(Permission.editJobs);
+    final List<Job> visibleJobs = provider.jobs.where((Job job) {
+      return isManager ||
+          job.assignedEmployeeIds.contains(provider.currentUser.id);
+    }).toList();
+    final List<Job> selectedJobs = visibleJobs.where((Job job) {
+      return DateUtils.isSameDay(job.scheduledDate, _selectedDate);
+    }).toList()..sort((Job a, Job b) => a.title.compareTo(b.title));
+    final bool isToday = DateUtils.isSameDay(_selectedDate, DateTime.now());
 
     return _Frame(
-      title: 'Home',
-      child: ListView(
-        padding: const EdgeInsets.all(16),
-        children: <Widget>[
-          if (runningTimer != null)
+      title: 'Diary',
+      child: RefreshIndicator(
+        onRefresh: provider.refreshAll,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16),
+          children: <Widget>[
             Card(
-              child: ListTile(
-                leading: const Icon(Icons.timer),
-                title: const Text('Timer running'),
-                subtitle: Text(
-                  '${provider.currentUser.name} • ${_jobName(provider, runningTimer.jobId)}',
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                child: Row(
+                  children: <Widget>[
+                    IconButton(
+                      tooltip: 'Previous day',
+                      onPressed: () => _moveDate(-1),
+                      icon: const Icon(Icons.chevron_left),
+                    ),
+                    Expanded(
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: _pickDate,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          child: Column(
+                            children: <Widget>[
+                              Text(
+                                isToday
+                                    ? 'TODAY'
+                                    : DateFormat(
+                                        'EEEE',
+                                      ).format(_selectedDate).toUpperCase(),
+                                style: TextStyle(
+                                  color: Theme.of(context).colorScheme.primary,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 1.2,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                DateFormat('d MMMM y').format(_selectedDate),
+                                style: const TextStyle(
+                                  fontSize: 19,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Next day',
+                      onPressed: () => _moveDate(1),
+                      icon: const Icon(Icons.chevron_right),
+                    ),
+                  ],
                 ),
-                trailing: FilledButton(
-                  onPressed: () => provider.stopTimer(
-                    timer: runningTimer,
-                    workType: 'Site work',
-                    notes: 'Finished onsite task.',
-                    billable: true,
-                    quantityHours: 0,
-                    billingRate: 95,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: Text(
+                    selectedJobs.isEmpty
+                        ? 'No jobs scheduled'
+                        : '${selectedJobs.length} ${selectedJobs.length == 1 ? 'job' : 'jobs'} scheduled',
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-                  child: const Text('Stop'),
                 ),
-              ),
-            )
-          else
-            const Card(
-              child: ListTile(
-                leading: Icon(Icons.play_arrow),
-                title: Text('Ready to start'),
-                subtitle: Text(
-                  'Open a job and start a timer when you are on site.',
-                ),
-              ),
-            ),
-          const SizedBox(height: 12),
-          if (activeJob != null)
-            Card(
-              child: ListTile(
-                title: Text(activeJob.title),
-                subtitle: Text(
-                  '${activeJob.siteAddress} • ${activeJob.status}',
-                ),
-                trailing: TextButton(
-                  onPressed: () => provider.startTimer(
-                    employeeId: provider.currentUser.id,
-                    jobId: activeJob.id,
-                    activity: 'General',
-                    notes: 'On site',
+                if (!isToday)
+                  TextButton(
+                    onPressed: () => setState(
+                      () => _selectedDate = DateUtils.dateOnly(DateTime.now()),
+                    ),
+                    child: const Text('Today'),
                   ),
-                  child: const Text('Start work'),
+              ],
+            ),
+            const SizedBox(height: 4),
+            for (final Job job in selectedJobs)
+              Card(
+                child: ListTile(
+                  leading: const CircleAvatar(child: Icon(Icons.work_outline)),
+                  title: Text(
+                    job.title,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  subtitle: Text(
+                    <String>[
+                      if (job.siteAddress.isNotEmpty) job.siteAddress,
+                      job.referenceNumber,
+                    ].join('\n'),
+                  ),
+                  isThreeLine: job.siteAddress.isNotEmpty,
+                  trailing: _Pill(job.status),
                 ),
               ),
-            ),
-          const SizedBox(height: 12),
-          const Text(
-            'Today',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-          ),
-          for (final Job job in provider.jobs)
-            Card(
-              child: ListTile(
-                title: Text(job.title),
-                subtitle: Text(
-                  '${job.workflowStage} • ${DateFormat.MMMd().format(job.scheduledDate)}',
+            if (selectedJobs.isEmpty)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(28),
+                  child: Column(
+                    children: <Widget>[
+                      Icon(
+                        Icons.event_available,
+                        size: 44,
+                        color: Colors.grey.shade400,
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        isManager
+                            ? 'There are no jobs in the diary for this date.'
+                            : 'You have no assigned jobs for this date.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.grey.shade700),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -215,84 +299,88 @@ class JobsScreen extends StatelessWidget {
               onPressed: () => _showJobForm(context),
             )
           : null,
-      child: ListView(
-        padding: const EdgeInsets.all(16),
-        children: <Widget>[
-          for (final Job job in provider.jobs)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Row(
-                      children: <Widget>[
-                        Expanded(
-                          child: Text(
-                            job.title,
-                            style: const TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w700,
+      child: RefreshIndicator(
+        onRefresh: provider.refreshAll,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16),
+          children: <Widget>[
+            for (final Job job in provider.jobs)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Row(
+                        children: <Widget>[
+                          Expanded(
+                            child: Text(
+                              job.title,
+                              style: const TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
+                          if (isManager)
+                            IconButton(
+                              icon: const Icon(Icons.edit_outlined),
+                              tooltip: 'Edit job',
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              onPressed: () =>
+                                  _showJobForm(context, editJob: job),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        job.referenceNumber,
+                        style: TextStyle(
+                          color: Colors.grey.shade600,
+                          fontSize: 13,
                         ),
-                        if (isManager)
-                          IconButton(
-                            icon: const Icon(Icons.edit_outlined),
-                            tooltip: 'Edit job',
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
-                            onPressed: () =>
-                                _showJobForm(context, editJob: job),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      job.referenceNumber,
-                      style: TextStyle(
-                        color: Colors.grey.shade600,
-                        fontSize: 13,
                       ),
-                    ),
-                    if (job.description.isNotEmpty) ...<Widget>[
-                      const SizedBox(height: 6),
-                      Text(job.description),
+                      if (job.description.isNotEmpty) ...<Widget>[
+                        const SizedBox(height: 6),
+                        Text(job.description),
+                      ],
+                      const SizedBox(height: 8),
+                      Text(
+                        job.siteAddress,
+                        style: const TextStyle(fontWeight: FontWeight.w500),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: <Widget>[
+                          _Pill(job.status),
+                          const SizedBox(width: 8),
+                          if (job.workflowStage != job.status)
+                            _Pill(job.workflowStage),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Assigned: ${job.assignedEmployeeIds.length} crew  •  ${DateFormat('d MMM y').format(job.scheduledDate)}',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
                     ],
-                    const SizedBox(height: 8),
-                    Text(
-                      job.siteAddress,
-                      style: const TextStyle(fontWeight: FontWeight.w500),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: <Widget>[
-                        _Pill(job.status),
-                        const SizedBox(width: 8),
-                        if (job.workflowStage != job.status)
-                          _Pill(job.workflowStage),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Assigned: ${job.assignedEmployeeIds.length} crew  •  ${DateFormat('d MMM y').format(job.scheduledDate)}',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
-            ),
-          if (provider.jobs.isEmpty)
-            const Card(
-              child: ListTile(
-                title: Text('No jobs yet'),
-                subtitle: Text('Tap + to add the first job.'),
+            if (provider.jobs.isEmpty)
+              const Card(
+                child: ListTile(
+                  title: Text('No jobs yet'),
+                  subtitle: Text('Tap + to add the first job.'),
+                ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -352,78 +440,86 @@ class _TimesheetScreenState extends State<TimesheetScreen> {
         tooltip: 'Add hours',
         onPressed: () => _showAddEntry(context),
       ),
-      child: ListView(
-        padding: const EdgeInsets.all(16),
-        children: <Widget>[
-          if (isManager)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: SegmentedButton<_TimesheetView>(
-                segments: const <ButtonSegment<_TimesheetView>>[
-                  ButtonSegment<_TimesheetView>(
-                    value: _TimesheetView.mine,
-                    label: Text('My Hours'),
-                    icon: Icon(Icons.person_outline),
-                  ),
-                  ButtonSegment<_TimesheetView>(
-                    value: _TimesheetView.team,
-                    label: Text('Team Hours'),
-                    icon: Icon(Icons.group_outlined),
-                  ),
-                ],
-                selected: <_TimesheetView>{_view},
-                onSelectionChanged: (Set<_TimesheetView> v) =>
-                    setState(() => _view = v.first),
-              ),
-            ),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.access_time),
-              title: Text(
-                _view == _TimesheetView.mine
-                    ? 'Total hours logged'
-                    : 'Team total',
-              ),
-              trailing: Text(
-                '${hours.toStringAsFixed(1)} hrs',
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          for (final TimesheetEntry entry in entries)
-            _TimesheetEntryCard(
-              entry: entry,
-              provider: provider,
-              showEmployee: _view == _TimesheetView.team,
-              isManager: isManager,
-            ),
-          if (entries.isEmpty)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(28),
-                child: Column(
-                  children: <Widget>[
-                    const Icon(Icons.schedule, size: 48, color: Colors.black26),
-                    const SizedBox(height: 12),
-                    const Text(
-                      'No entries yet',
-                      style: TextStyle(fontWeight: FontWeight.w600),
+      child: RefreshIndicator(
+        onRefresh: provider.refreshAll,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16),
+          children: <Widget>[
+            if (isManager)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: SegmentedButton<_TimesheetView>(
+                  segments: const <ButtonSegment<_TimesheetView>>[
+                    ButtonSegment<_TimesheetView>(
+                      value: _TimesheetView.mine,
+                      label: Text('My Hours'),
+                      icon: Icon(Icons.person_outline),
                     ),
-                    const SizedBox(height: 4),
-                    TextButton.icon(
-                      icon: const Icon(Icons.add),
-                      label: const Text('Add your hours'),
-                      onPressed: () => _showAddEntry(context),
+                    ButtonSegment<_TimesheetView>(
+                      value: _TimesheetView.team,
+                      label: Text('Team Hours'),
+                      icon: Icon(Icons.group_outlined),
                     ),
                   ],
+                  selected: <_TimesheetView>{_view},
+                  onSelectionChanged: (Set<_TimesheetView> v) =>
+                      setState(() => _view = v.first),
+                ),
+              ),
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.access_time),
+                title: Text(
+                  _view == _TimesheetView.mine
+                      ? 'Total hours logged'
+                      : 'Team total',
+                ),
+                trailing: Text(
+                  '${hours.toStringAsFixed(1)} hrs',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ),
-        ],
+            const SizedBox(height: 12),
+            for (final TimesheetEntry entry in entries)
+              _TimesheetEntryCard(
+                entry: entry,
+                provider: provider,
+                showEmployee: _view == _TimesheetView.team,
+                isManager: isManager,
+              ),
+            if (entries.isEmpty)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(28),
+                  child: Column(
+                    children: <Widget>[
+                      const Icon(
+                        Icons.schedule,
+                        size: 48,
+                        color: Colors.black26,
+                      ),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'No entries yet',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 4),
+                      TextButton.icon(
+                        icon: const Icon(Icons.add),
+                        label: const Text('Add your hours'),
+                        onPressed: () => _showAddEntry(context),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -539,13 +635,28 @@ class _Pill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final Color color = switch (label) {
+      'Completed' || 'Approved' => Colors.green,
+      'Cancelled' || 'Rejected' => Colors.red,
+      'In Progress' => Colors.blue,
+      'On Hold' => Colors.orange,
+      'Scheduled' => Colors.purple,
+      _ => Theme.of(context).colorScheme.primary,
+    };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.primaryContainer,
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(999),
       ),
-      child: Text(label),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.w700,
+          fontSize: 12,
+        ),
+      ),
     );
   }
 }
@@ -567,15 +678,6 @@ String _entryJobLabel(BusinessProvider provider, TimesheetEntry entry) {
   return entry.workType.isNotEmpty ? entry.workType : 'Unknown job';
 }
 
-String _jobName(BusinessProvider provider, String jobId) {
-  for (final Job job in provider.jobs) {
-    if (job.id == jobId) {
-      return job.title;
-    }
-  }
-  return 'Unknown job';
-}
-
 class _AddEntrySheet extends StatefulWidget {
   const _AddEntrySheet();
 
@@ -590,6 +692,7 @@ class _AddEntrySheetState extends State<_AddEntrySheet> {
   final TextEditingController _notesCtrl = TextEditingController();
   DateTime _date = DateTime.now();
   String? _error;
+  bool _busy = false;
 
   @override
   void dispose() {
@@ -623,6 +726,10 @@ class _AddEntrySheetState extends State<_AddEntrySheet> {
       setState(() => _error = 'Enter valid hours (e.g. 7.5).');
       return;
     }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
     try {
       await context.read<BusinessProvider>().addManualEntry(
         hours: hours,
@@ -633,7 +740,14 @@ class _AddEntrySheetState extends State<_AddEntrySheet> {
       );
       if (mounted) Navigator.of(context).pop();
     } catch (error) {
-      if (mounted) setState(() => _error = 'Could not save hours: $error');
+      if (mounted) {
+        setState(
+          () => _error =
+              'Unable to save hours. Check your connection and try again.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -740,13 +854,21 @@ class _AddEntrySheetState extends State<_AddEntrySheet> {
           ],
           const SizedBox(height: 20),
           FilledButton(
-            onPressed: _submit,
-            child: const Padding(
+            onPressed: _busy ? null : _submit,
+            child: Padding(
               padding: EdgeInsets.symmetric(vertical: 4),
-              child: Text(
-                'Add Entry',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-              ),
+              child: _busy
+                  ? const SizedBox.square(
+                      dimension: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text(
+                      'Add Entry',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
             ),
           ),
         ],
@@ -857,6 +979,7 @@ class _JobFormSheetState extends State<_JobFormSheet> {
   late String _status;
   late List<String> _assignedEmployeeIds;
   String? _error;
+  bool _busy = false;
 
   static const List<String> _statusOptions = <String>[
     'New',
@@ -913,39 +1036,54 @@ class _JobFormSheetState extends State<_JobFormSheet> {
       setState(() => _error = 'Site address is required.');
       return;
     }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
     final BusinessProvider provider = context.read<BusinessProvider>();
-    if (widget.editJob != null) {
-      await provider.updateJob(
-        Job(
-          id: widget.editJob!.id,
-          customerId: widget.editJob!.customerId,
-          referenceNumber: _refCtrl.text.trim(),
+    try {
+      if (widget.editJob != null) {
+        await provider.updateJob(
+          Job(
+            id: widget.editJob!.id,
+            customerId: widget.editJob!.customerId,
+            referenceNumber: _refCtrl.text.trim(),
+            title: _titleCtrl.text.trim(),
+            description: _descCtrl.text.trim(),
+            siteAddress: _addressCtrl.text.trim(),
+            status: _status,
+            workflowStage: _status,
+            scheduledDate: _scheduledDate,
+            assignedEmployeeIds: _assignedEmployeeIds,
+            notes: _notesCtrl.text.trim(),
+            billingStatus: widget.editJob!.billingStatus,
+            createdAt: widget.editJob!.createdAt,
+            updatedAt: DateTime.now(),
+          ),
+        );
+      } else {
+        await provider.addJob(
           title: _titleCtrl.text.trim(),
-          description: _descCtrl.text.trim(),
+          referenceNumber: _refCtrl.text.trim(),
           siteAddress: _addressCtrl.text.trim(),
-          status: _status,
-          workflowStage: _status,
+          description: _descCtrl.text.trim(),
           scheduledDate: _scheduledDate,
-          assignedEmployeeIds: _assignedEmployeeIds,
+          status: _status,
           notes: _notesCtrl.text.trim(),
-          billingStatus: widget.editJob!.billingStatus,
-          createdAt: widget.editJob!.createdAt,
-          updatedAt: DateTime.now(),
-        ),
-      );
-    } else {
-      await provider.addJob(
-        title: _titleCtrl.text.trim(),
-        referenceNumber: _refCtrl.text.trim(),
-        siteAddress: _addressCtrl.text.trim(),
-        description: _descCtrl.text.trim(),
-        scheduledDate: _scheduledDate,
-        status: _status,
-        notes: _notesCtrl.text.trim(),
-        assignedEmployeeIds: _assignedEmployeeIds,
-      );
+          assignedEmployeeIds: _assignedEmployeeIds,
+        );
+      }
+      if (mounted) Navigator.of(context).pop();
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _error =
+              'Unable to save this job. Check the details and try again.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
-    if (mounted) Navigator.of(context).pop();
   }
 
   @override
@@ -1084,16 +1222,21 @@ class _JobFormSheetState extends State<_JobFormSheet> {
             ],
             const SizedBox(height: 20),
             FilledButton(
-              onPressed: _submit,
+              onPressed: _busy ? null : _submit,
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Text(
-                  isEdit ? 'Save Changes' : 'Create Job',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
+                child: _busy
+                    ? const SizedBox.square(
+                        dimension: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(
+                        isEdit ? 'Save Changes' : 'Create Job',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
               ),
             ),
             if (isEdit) ...<Widget>[

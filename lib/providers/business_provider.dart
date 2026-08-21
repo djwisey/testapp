@@ -246,7 +246,13 @@ class BusinessProvider extends ChangeNotifier {
       debugPrint(
         'PocketBase $collection list failed (${error.statusCode}): ${error.response['message']}',
       );
-      dataLoadErrors[collection] = 'Unable to load $collection.';
+      dataLoadErrors[collection] = switch (error.statusCode) {
+        400 =>
+          'Unable to load $collection because the server collection configuration does not match the app.',
+        401 ||
+        403 => 'Your account does not have permission to load $collection.',
+        _ => 'Unable to load $collection. Check your connection and try again.',
+      };
     } catch (error) {
       debugPrint('PocketBase $collection list failed: ${error.runtimeType}');
       dataLoadErrors[collection] = 'Unable to load $collection.';

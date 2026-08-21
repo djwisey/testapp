@@ -28,6 +28,27 @@ class FieldFlowApp extends StatelessWidget {
                     secondary: const Color(0xFFF5C400),
                   ),
                   useMaterial3: true,
+                  scaffoldBackgroundColor: const Color(0xFFF5F6F8),
+                  cardTheme: const CardThemeData(
+                    elevation: 0,
+                    margin: EdgeInsets.only(bottom: 10),
+                    color: Colors.white,
+                  ),
+                  inputDecorationTheme: InputDecorationTheme(
+                    filled: true,
+                    fillColor: Colors.white,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  filledButtonTheme: FilledButtonThemeData(
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(48, 48),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
                 ),
                 home: provider.isInitializing && !provider.isAuthenticated
                     ? const Scaffold(

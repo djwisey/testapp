@@ -8,7 +8,9 @@ import 'package:new_test_app/screens/game_shell_screen.dart';
 import 'package:new_test_app/services/timesheet_service.dart';
 
 void main() {
-  testWidgets('workforce shell renders home and job tabs', (WidgetTester tester) async {
+  testWidgets('workforce shell renders diary and job tabs', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(
       ChangeNotifierProvider<BusinessProvider>(
         create: (_) => BusinessProvider(),
@@ -17,7 +19,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Home'), findsWidgets);
+    expect(find.text('Diary'), findsWidgets);
     expect(find.text('Jobs'), findsWidgets);
     expect(find.text('Timesheet'), findsWidgets);
     expect(find.text('Profile'), findsWidgets);
@@ -74,7 +76,10 @@ void main() {
 
   test('billing calculations follow quantity and rate', () {
     final TimesheetService service = TimesheetService();
-    final double amount = service.calculateBillingAmount(quantityHours: 2.5, rate: 110);
+    final double amount = service.calculateBillingAmount(
+      quantityHours: 2.5,
+      rate: 110,
+    );
     expect(amount, 275);
   });
 }
