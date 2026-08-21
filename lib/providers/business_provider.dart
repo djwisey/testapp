@@ -6,16 +6,23 @@ import '../models/workflow_models.dart';
 import '../services/pocketbase_service.dart';
 import '../services/timesheet_service.dart';
 
+enum AuthenticationState {
+  unauthenticated,
+  authenticating,
+  authenticatedLoading,
+  authenticatedReady,
+  authenticatedDataError,
+}
+
 class BusinessProvider extends ChangeNotifier {
   BusinessProvider({
     Uuid? uuid,
     TimesheetService? timesheetService,
     PocketBaseService? backend,
-  })  : _uuid = uuid ?? const Uuid(),
-        _timesheetService = timesheetService ?? TimesheetService(uuid: uuid ?? const Uuid()),
-        _backend = backend ?? PocketBaseService();
+  }) : _timesheetService =
+           timesheetService ?? TimesheetService(uuid: uuid ?? const Uuid()),
+       _backend = backend ?? PocketBaseService();
 
-  final Uuid _uuid;
   final TimesheetService _timesheetService;
   final PocketBaseService _backend;
 
@@ -23,6 +30,14 @@ class BusinessProvider extends ChangeNotifier {
   bool isAuthenticated = false;
   bool isLoading = false;
   String? lastError;
+  AuthenticationState authenticationState = AuthenticationState.unauthenticated;
+  final Map<String, String> dataLoadErrors = <String, String>{};
+
+  bool get isInitializing =>
+      authenticationState == AuthenticationState.authenticating;
+  bool get isDataLoading =>
+      authenticationState == AuthenticationState.authenticatedLoading;
+  bool get hasDataLoadErrors => dataLoadErrors.isNotEmpty;
 
   User currentUser = const User(
     id: '',
@@ -52,9 +67,24 @@ class BusinessProvider extends ChangeNotifier {
   ];
 
   Future<void> initialize() async {
-    // A fresh app starts on login. PocketBase auth can be made persistent later
-    // without changing the repository/data abstraction introduced here.
+    authenticationState = AuthenticationState.authenticating;
     notifyListeners();
+    final RecordModel? record = _backend.authenticatedRecord;
+    if (!_backend.isAuthenticated ||
+        record == null ||
+        !record.getBoolValue('active', true)) {
+      if (record != null && !record.getBoolValue('active', true)) {
+        _backend.signOut();
+      }
+      isAuthenticated = false;
+      authenticationState = AuthenticationState.unauthenticated;
+      notifyListeners();
+      return;
+    }
+
+    currentUser = _userFromRecord(record);
+    isAuthenticated = true;
+    await refreshAll();
   }
 
   Set<Permission> _permissionsForRole(String role) => role == 'manager'
@@ -107,14 +137,17 @@ class BusinessProvider extends ChangeNotifier {
       assignedEmployeeIds: record.getListValue<String>('assigned_employees'),
       notes: record.getStringValue('notes'),
       billingStatus: 'Pending',
-      createdAt: DateTime.tryParse(record.created)?.toLocal() ?? now,
-      updatedAt: DateTime.tryParse(record.updated)?.toLocal() ?? now,
+      createdAt:
+          DateTime.tryParse(record.get<String>('created'))?.toLocal() ?? now,
+      updatedAt:
+          DateTime.tryParse(record.get<String>('updated'))?.toLocal() ?? now,
     );
   }
 
   TimesheetEntry _timesheetFromRecord(RecordModel record) {
     final DateTime now = DateTime.now();
-    final DateTime date = DateTime.tryParse(record.getStringValue('date'))?.toLocal() ?? now;
+    final DateTime date =
+        DateTime.tryParse(record.getStringValue('date'))?.toLocal() ?? now;
     final double hours = record.getDoubleValue('hours');
     final String approval = record.getStringValue('approval_status', 'pending');
     return TimesheetEntry(
@@ -133,8 +166,10 @@ class BusinessProvider extends ChangeNotifier {
       approvalStatus: approval.isEmpty
           ? 'Pending'
           : '${approval[0].toUpperCase()}${approval.substring(1)}',
-      createdAt: DateTime.tryParse(record.created)?.toLocal() ?? now,
-      modifiedAt: DateTime.tryParse(record.updated)?.toLocal() ?? now,
+      createdAt:
+          DateTime.tryParse(record.get<String>('created'))?.toLocal() ?? now,
+      modifiedAt:
+          DateTime.tryParse(record.get<String>('updated'))?.toLocal() ?? now,
       customJobLabel: record.getStringValue('other_job').isEmpty
           ? null
           : record.getStringValue('other_job'),
@@ -144,21 +179,38 @@ class BusinessProvider extends ChangeNotifier {
   Future<bool> signInWithCredentials(String email, String password) async {
     isLoading = true;
     lastError = null;
+    dataLoadErrors.clear();
+    authenticationState = AuthenticationState.authenticating;
     notifyListeners();
     try {
       final RecordModel record = await _backend.signIn(email, password);
       currentUser = _userFromRecord(record);
       isAuthenticated = true;
       selectedTabIndex = 0;
+      authenticationState = AuthenticationState.authenticatedLoading;
+      notifyListeners();
       await refreshAll();
       return true;
     } on ClientException catch (error) {
-      lastError = error.response['message']?.toString() ?? 'Invalid email or password.';
+      debugPrint(
+        'PocketBase users auth failed (${error.statusCode}): ${error.response['message']}',
+      );
+      lastError = error.statusCode == 400
+          ? 'Incorrect email or password.'
+          : 'Unable to connect to the EMN server.';
       isAuthenticated = false;
+      authenticationState = AuthenticationState.unauthenticated;
       return false;
-    } catch (_) {
-      lastError = 'Unable to connect to the EMN server. Check your internet connection.';
+    } on StateError catch (error) {
+      lastError = error.message.toString();
       isAuthenticated = false;
+      authenticationState = AuthenticationState.unauthenticated;
+      return false;
+    } catch (error) {
+      debugPrint('PocketBase users auth failed: ${error.runtimeType}');
+      lastError = 'Unable to connect to the EMN server.';
+      isAuthenticated = false;
+      authenticationState = AuthenticationState.unauthenticated;
       return false;
     } finally {
       isLoading = false;
@@ -168,12 +220,37 @@ class BusinessProvider extends ChangeNotifier {
 
   Future<void> refreshAll() async {
     if (!isAuthenticated) return;
+    authenticationState = AuthenticationState.authenticatedLoading;
+    dataLoadErrors.clear();
+    notifyListeners();
     final List<Future<void>> tasks = <Future<void>>[
-      refreshJobs(),
-      refreshTimesheets(),
-      if (hasPermission(Permission.manageEmployees)) refreshEmployees(),
+      _refreshSafely('jobs', refreshJobs),
+      _refreshSafely('timesheets', refreshTimesheets),
+      if (hasPermission(Permission.manageEmployees))
+        _refreshSafely('workers', refreshEmployees),
     ];
     await Future.wait(tasks);
+    authenticationState = dataLoadErrors.isEmpty
+        ? AuthenticationState.authenticatedReady
+        : AuthenticationState.authenticatedDataError;
+    notifyListeners();
+  }
+
+  Future<void> _refreshSafely(
+    String collection,
+    Future<void> Function() load,
+  ) async {
+    try {
+      await load();
+    } on ClientException catch (error) {
+      debugPrint(
+        'PocketBase $collection list failed (${error.statusCode}): ${error.response['message']}',
+      );
+      dataLoadErrors[collection] = 'Unable to load $collection.';
+    } catch (error) {
+      debugPrint('PocketBase $collection list failed: ${error.runtimeType}');
+      dataLoadErrors[collection] = 'Unable to load $collection.';
+    }
   }
 
   Future<void> refreshEmployees() async {
@@ -198,6 +275,10 @@ class BusinessProvider extends ChangeNotifier {
   void signOut() {
     _backend.signOut();
     isAuthenticated = false;
+    isLoading = false;
+    lastError = null;
+    dataLoadErrors.clear();
+    authenticationState = AuthenticationState.unauthenticated;
     selectedTabIndex = 0;
     currentUser = const User(
       id: '',
@@ -235,14 +316,19 @@ class BusinessProvider extends ChangeNotifier {
       'notes': notes.trim(),
       'approval_status': 'pending',
     });
-    timesheetEntries = <TimesheetEntry>[_timesheetFromRecord(record), ...timesheetEntries];
+    timesheetEntries = <TimesheetEntry>[
+      _timesheetFromRecord(record),
+      ...timesheetEntries,
+    ];
     notifyListeners();
   }
 
   String nextJobReference() {
     int max = 100;
     for (final Job job in jobs) {
-      final int? num = int.tryParse(job.referenceNumber.replaceAll(RegExp(r'[^0-9]'), ''));
+      final int? num = int.tryParse(
+        job.referenceNumber.replaceAll(RegExp(r'[^0-9]'), ''),
+      );
       if (num != null && num > max) max = num;
     }
     return 'EMN-${max + 1}';
@@ -297,12 +383,29 @@ class BusinessProvider extends ChangeNotifier {
   }
 
   Future<void> approveEntry(String entryId) async {
+    await reviewEntry(entryId, 'approved');
+  }
+
+  Future<void> rejectEntry(String entryId) async {
+    await reviewEntry(entryId, 'rejected');
+  }
+
+  Future<void> reviewEntry(String entryId, String status) async {
+    if (status != 'approved' && status != 'rejected') {
+      throw ArgumentError.value(
+        status,
+        'status',
+        'Must be approved or rejected.',
+      );
+    }
     final record = await _backend.updateTimesheet(entryId, <String, dynamic>{
-      'approval_status': 'approved',
+      'approval_status': status,
       'approved_by': currentUser.id,
       'approved_at': DateTime.now().toUtc().toIso8601String(),
     });
-    final int index = timesheetEntries.indexWhere((entry) => entry.id == entryId);
+    final int index = timesheetEntries.indexWhere(
+      (entry) => entry.id == entryId,
+    );
     if (index >= 0) timesheetEntries[index] = _timesheetFromRecord(record);
     notifyListeners();
   }
@@ -345,21 +448,17 @@ class BusinessProvider extends ChangeNotifier {
       throw StateError('You cannot delete your own account.');
     }
     if (timesheetEntries.any((entry) => entry.employeeId == employeeId)) {
-      throw StateError('This worker has timesheet history. Disable the account instead of deleting it.');
+      throw StateError(
+        'This worker has timesheet history. Disable the account instead of deleting it.',
+      );
     }
     await _backend.deleteWorker(employeeId);
     employees.removeWhere((employee) => employee.id == employeeId);
     notifyListeners();
   }
 
-  bool hasPermission(Permission permission) => currentUser.permissions.contains(permission);
-
-  String _jobTitle(String jobId) {
-    for (final Job job in jobs) {
-      if (job.id == jobId) return job.title;
-    }
-    return 'General';
-  }
+  bool hasPermission(Permission permission) =>
+      currentUser.permissions.contains(permission);
 
   bool canStartTimerForEmployee(String employeeId) =>
       activeTimers.every((ActiveTimer timer) => timer.employeeId != employeeId);
@@ -374,22 +473,24 @@ class BusinessProvider extends ChangeNotifier {
     if (index < 0) return;
     final Job job = jobs[index];
     if (job.assignedEmployeeIds.contains(employeeId)) return;
-    updateJob(Job(
-      id: job.id,
-      customerId: job.customerId,
-      referenceNumber: job.referenceNumber,
-      title: job.title,
-      description: job.description,
-      siteAddress: job.siteAddress,
-      status: job.status,
-      workflowStage: job.workflowStage,
-      scheduledDate: job.scheduledDate,
-      assignedEmployeeIds: <String>[...job.assignedEmployeeIds, employeeId],
-      notes: job.notes,
-      billingStatus: job.billingStatus,
-      createdAt: job.createdAt,
-      updatedAt: DateTime.now(),
-    ));
+    updateJob(
+      Job(
+        id: job.id,
+        customerId: job.customerId,
+        referenceNumber: job.referenceNumber,
+        title: job.title,
+        description: job.description,
+        siteAddress: job.siteAddress,
+        status: job.status,
+        workflowStage: job.workflowStage,
+        scheduledDate: job.scheduledDate,
+        assignedEmployeeIds: <String>[...job.assignedEmployeeIds, employeeId],
+        notes: job.notes,
+        billingStatus: job.billingStatus,
+        createdAt: job.createdAt,
+        updatedAt: DateTime.now(),
+      ),
+    );
   }
 
   ActiveTimer? startTimer({
@@ -431,7 +532,9 @@ class BusinessProvider extends ChangeNotifier {
       quantityHours: quantityHours,
       billingRate: billingRate,
     );
-    activeTimers = activeTimers.where((active) => active.id != timer.id).toList();
+    activeTimers = activeTimers
+        .where((active) => active.id != timer.id)
+        .toList();
     timesheetEntries = <TimesheetEntry>[entry, ...timesheetEntries];
     notifyListeners();
     return entry;

@@ -40,7 +40,7 @@ Open the `users` collection and create a record with:
 - name: manager name
 - role: `manager`
 - active: enabled
-- department: e.g. `Operations`
+- job_title: e.g. `Site Manager`
 
 Do not put the PocketBase superuser account or password in the Flutter app.
 
