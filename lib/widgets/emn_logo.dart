@@ -18,13 +18,20 @@ class EmnLogo extends StatelessWidget {
         borderRadius: BorderRadius.circular(size * 0.2),
         border: Border.all(color: _navy, width: size * 0.03),
         boxShadow: const <BoxShadow>[
-          BoxShadow(color: Color(0x55000000), blurRadius: 20, offset: Offset(0, 8)),
+          BoxShadow(
+            color: Color(0x55000000),
+            blurRadius: 20,
+            offset: Offset(0, 8),
+          ),
         ],
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(size * 0.17),
         child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: size * 0.06, vertical: size * 0.14),
+          padding: EdgeInsets.symmetric(
+            horizontal: size * 0.06,
+            vertical: size * 0.14,
+          ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[

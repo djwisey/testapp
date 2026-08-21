@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:new_test_app/providers/business_provider.dart';
-import 'package:new_test_app/services/pocketbase_service.dart';
+import 'package:emn_plant/providers/business_provider.dart';
+import 'package:emn_plant/services/pocketbase_service.dart';
 import 'package:pocketbase/pocketbase.dart';
 
 void main() {
@@ -68,6 +68,24 @@ void main() {
       expect(provider.timesheetEntries, isEmpty);
     });
   });
+
+  test('manual shift subtracts break duration from worked hours', () async {
+    final _FakePocketBaseService backend = _FakePocketBaseService();
+    final BusinessProvider provider = BusinessProvider(backend: backend);
+    final DateTime date = DateTime(2026, 8, 21);
+
+    await provider.addManualEntry(
+      date: date,
+      startTime: DateTime(2026, 8, 21, 8),
+      endTime: DateTime(2026, 8, 21, 17),
+      breakHours: 1,
+      jobId: 'job-1',
+    );
+
+    expect(backend.lastTimesheetBody?['hours'], 8);
+    expect(backend.lastTimesheetBody?['break_hours'], 1);
+    expect(provider.timesheetEntries.single.quantityHours, 8);
+  });
 }
 
 class _FakePocketBaseService extends PocketBaseService {
@@ -76,6 +94,7 @@ class _FakePocketBaseService extends PocketBaseService {
   final bool failJobs;
   final bool invalidLogin;
   bool didSignOut = false;
+  Map<String, dynamic>? lastTimesheetBody;
 
   @override
   Future<RecordModel> signIn(String email, String password) async {
@@ -105,6 +124,17 @@ class _FakePocketBaseService extends PocketBaseService {
 
   @override
   Future<List<RecordModel>> getUsers() async => <RecordModel>[];
+
+  @override
+  Future<RecordModel> createTimesheet(Map<String, dynamic> body) async {
+    lastTimesheetBody = body;
+    return RecordModel(<String, dynamic>{
+      'id': 'timesheet-1',
+      ...body,
+      'created': DateTime.now().toUtc().toIso8601String(),
+      'updated': DateTime.now().toUtc().toIso8601String(),
+    });
+  }
 
   @override
   void signOut() {

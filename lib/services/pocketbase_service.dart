@@ -96,8 +96,11 @@ class PocketBaseService {
 
   Future<void> deleteJob(String id) => client.collection('jobs').delete(id);
 
+  // Sort locally after parsing. Keeping the list request schema-neutral avoids
+  // PocketBase rejecting the entire request when a production collection has
+  // an older/mismatched sortable-field definition.
   Future<List<RecordModel>> getTimesheets() =>
-      client.collection('timesheets').getFullList(sort: '-date,-created');
+      client.collection('timesheets').getFullList();
 
   Future<RecordModel> createTimesheet(Map<String, dynamic> body) =>
       client.collection('timesheets').create(body: body);

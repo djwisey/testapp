@@ -14,5 +14,5 @@ Future<void> main() async {
     save: (String data) => authBox.put('auth', data),
     clear: () => authBox.delete('auth'),
   );
-  runApp(FieldFlowApp(backend: PocketBaseService(authStore: authStore)));
+  runApp(EmnPlantApp(backend: PocketBaseService(authStore: authStore)));
 }

@@ -38,7 +38,9 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!mounted) return;
     setState(() => _loading = false);
     if (!ok) {
-      setState(() => _error = provider.lastError ?? 'Invalid email or password.');
+      setState(
+        () => _error = provider.lastError ?? 'Invalid email or password.',
+      );
     }
   }
 
@@ -104,15 +106,19 @@ class _LoginScreenState extends State<LoginScreen> {
                       obscureText: _obscure,
                       textInputAction: TextInputAction.done,
                       onSubmitted: (_) => _signIn(),
-                      decoration: _fieldDecor('Password', Icons.lock_outline).copyWith(
-                        suffixIcon: IconButton(
-                          icon: Icon(
-                            _obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-                            color: const Color(0xFF0D1B4E),
+                      decoration: _fieldDecor('Password', Icons.lock_outline)
+                          .copyWith(
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _obscure
+                                    ? Icons.visibility_outlined
+                                    : Icons.visibility_off_outlined,
+                                color: const Color(0xFF0D1B4E),
+                              ),
+                              onPressed: () =>
+                                  setState(() => _obscure = !_obscure),
+                            ),
                           ),
-                          onPressed: () => setState(() => _obscure = !_obscure),
-                        ),
-                      ),
                     ),
                     if (_error != null) ...<Widget>[
                       const SizedBox(height: 12),
@@ -132,7 +138,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           fontWeight: FontWeight.w800,
                           letterSpacing: 1,
                         ),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                       onPressed: _loading ? null : _signIn,
                       child: _loading
@@ -158,12 +166,12 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   InputDecoration _fieldDecor(String label, IconData icon) => InputDecoration(
-        labelText: label,
-        prefixIcon: Icon(icon, color: const Color(0xFF0D1B4E)),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: Color(0xFF0D1B4E), width: 2),
-        ),
-      );
+    labelText: label,
+    prefixIcon: Icon(icon, color: const Color(0xFF0D1B4E)),
+    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(10),
+      borderSide: const BorderSide(color: Color(0xFF0D1B4E), width: 2),
+    ),
+  );
 }

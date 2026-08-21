@@ -5,10 +5,10 @@
 // 'flutter create' template.
 
 // The application's name. By default this is also the title of the Flutter window.
-PRODUCT_NAME = new_test_app
+PRODUCT_NAME = EMN Plant
 
 // The application's bundle identifier
 PRODUCT_BUNDLE_IDENTIFIER = com.example.newTestApp
 
 // The copyright displayed in application information
-PRODUCT_COPYRIGHT = Copyright © 2026 com.example. All rights reserved.
+PRODUCT_COPYRIGHT = Copyright (C) 2026 EMN Plant. All rights reserved.

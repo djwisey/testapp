@@ -1,17 +1,37 @@
-# new_test_app
+# EMN Plant workforce app
 
-A new Flutter project.
+Flutter workforce application backed by PocketBase at
+`https://emnapi.dylanwiseman.com`.
 
-## Getting Started
+## Current functionality
 
-This project is a starting point for a Flutter application.
+- PocketBase authentication with persisted sessions
+- Employee and manager roles
+- Worker account management
+- Job management and worker assignment
+- Diary-style scheduled job view
+- Manual timesheets using date, start time, end time and break duration
+- Manager timesheet approval and rejection
 
-A few resources to get you started if this is your first Flutter project:
+Worked hours are calculated as `(end time - start time) - break`. The app has
+no running timers, wage calculations, billing rates or billable-hour tracking.
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+## PocketBase migrations
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Migrations are in `server/pb_migrations/` and must be applied in timestamp
+order. Existing production collections must not be recreated.
+
+The current follow-up migrations are:
+
+- `1787301000_simplify_user_fields.js`
+- `1787302000_add_timesheet_shift_times.js`
+
+Back up `pb_data` before applying migrations.
+
+## Validation
+
+```bash
+flutter pub get
+flutter analyze
+flutter test
+```

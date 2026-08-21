@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'providers/business_provider.dart';
-import 'screens/game_shell_screen.dart';
+import 'screens/workforce_shell_screen.dart';
 import 'screens/login_screen.dart';
 import 'services/pocketbase_service.dart';
 
-class FieldFlowApp extends StatelessWidget {
-  const FieldFlowApp({super.key, this.backend});
+class EmnPlantApp extends StatelessWidget {
+  const EmnPlantApp({super.key, this.backend});
 
   final PocketBaseService? backend;
 

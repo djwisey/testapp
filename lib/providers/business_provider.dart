@@ -1,10 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:pocketbase/pocketbase.dart';
-import 'package:uuid/uuid.dart';
 
 import '../models/workflow_models.dart';
 import '../services/pocketbase_service.dart';
-import '../services/timesheet_service.dart';
 
 enum AuthenticationState {
   unauthenticated,
@@ -15,15 +13,9 @@ enum AuthenticationState {
 }
 
 class BusinessProvider extends ChangeNotifier {
-  BusinessProvider({
-    Uuid? uuid,
-    TimesheetService? timesheetService,
-    PocketBaseService? backend,
-  }) : _timesheetService =
-           timesheetService ?? TimesheetService(uuid: uuid ?? const Uuid()),
-       _backend = backend ?? PocketBaseService();
+  BusinessProvider({PocketBaseService? backend})
+    : _backend = backend ?? PocketBaseService();
 
-  final TimesheetService _timesheetService;
   final PocketBaseService _backend;
 
   int selectedTabIndex = 0;
@@ -49,22 +41,7 @@ class BusinessProvider extends ChangeNotifier {
 
   List<Employee> employees = <Employee>[];
   List<Job> jobs = <Job>[];
-  List<ActiveTimer> activeTimers = <ActiveTimer>[];
   List<TimesheetEntry> timesheetEntries = <TimesheetEntry>[];
-  List<BillingEntry> billingEntries = <BillingEntry>[];
-
-  // Retained for the existing timer unit tests. Timers are not persisted and are
-  // no longer the primary timesheet workflow in the UI.
-  final List<Customer> customers = <Customer>[
-    const Customer(
-      id: 'local-customer',
-      name: 'EMN Plant Customer',
-      contactName: '',
-      phone: '',
-      email: '',
-      address: '',
-    ),
-  ];
 
   Future<void> initialize() async {
     authenticationState = AuthenticationState.authenticating;
@@ -92,10 +69,9 @@ class BusinessProvider extends ChangeNotifier {
           Permission.viewJobs,
           Permission.editJobs,
           Permission.approveTimesheets,
-          Permission.viewBilling,
           Permission.manageEmployees,
         }
-      : <Permission>{Permission.viewJobs, Permission.viewBilling};
+      : <Permission>{Permission.viewJobs};
 
   User _userFromRecord(RecordModel record) {
     final String role = record.getStringValue('role', 'employee');
@@ -126,17 +102,14 @@ class BusinessProvider extends ChangeNotifier {
     final String scheduled = record.getStringValue('scheduled_date');
     return Job(
       id: record.id,
-      customerId: '',
       referenceNumber: record.getStringValue('reference'),
       title: record.getStringValue('title'),
       description: record.getStringValue('description'),
       siteAddress: record.getStringValue('site_address'),
       status: record.getStringValue('status', 'New'),
-      workflowStage: record.getStringValue('status', 'New'),
       scheduledDate: DateTime.tryParse(scheduled)?.toLocal() ?? now,
       assignedEmployeeIds: record.getListValue<String>('assigned_employees'),
       notes: record.getStringValue('notes'),
-      billingStatus: 'Pending',
       createdAt:
           DateTime.tryParse(record.get<String>('created'))?.toLocal() ?? now,
       updatedAt:
@@ -149,20 +122,21 @@ class BusinessProvider extends ChangeNotifier {
     final DateTime date =
         DateTime.tryParse(record.getStringValue('date'))?.toLocal() ?? now;
     final double hours = record.getDoubleValue('hours');
+    final DateTime? startTime = DateTime.tryParse(
+      record.getStringValue('start_time'),
+    )?.toLocal();
+    final DateTime? endTime = DateTime.tryParse(
+      record.getStringValue('end_time'),
+    )?.toLocal();
     final String approval = record.getStringValue('approval_status', 'pending');
     return TimesheetEntry(
       id: record.id,
       employeeId: record.getStringValue('employee'),
       jobId: record.getStringValue('job'),
       date: date,
-      startTime: date,
-      endTime: date.add(Duration(minutes: (hours * 60).round())),
-      durationMinutes: (hours * 60).round(),
       workType: record.getStringValue('other_job'),
       notes: record.getStringValue('notes'),
-      billable: true,
       quantityHours: hours,
-      billingRate: 0,
       approvalStatus: approval.isEmpty
           ? 'Pending'
           : '${approval[0].toUpperCase()}${approval.substring(1)}',
@@ -170,6 +144,9 @@ class BusinessProvider extends ChangeNotifier {
           DateTime.tryParse(record.get<String>('created'))?.toLocal() ?? now,
       modifiedAt:
           DateTime.tryParse(record.get<String>('updated'))?.toLocal() ?? now,
+      startTime: startTime,
+      endTime: endTime,
+      breakHours: record.getDoubleValue('break_hours'),
       customJobLabel: record.getStringValue('other_job').isEmpty
           ? null
           : record.getStringValue('other_job'),
@@ -274,7 +251,11 @@ class BusinessProvider extends ChangeNotifier {
 
   Future<void> refreshTimesheets() async {
     final records = await _backend.getTimesheets();
-    timesheetEntries = records.map(_timesheetFromRecord).toList();
+    timesheetEntries = records.map(_timesheetFromRecord).toList()
+      ..sort((TimesheetEntry a, TimesheetEntry b) {
+        final int byDate = b.date.compareTo(a.date);
+        return byDate != 0 ? byDate : b.createdAt.compareTo(a.createdAt);
+      });
     notifyListeners();
   }
 
@@ -296,8 +277,6 @@ class BusinessProvider extends ChangeNotifier {
     employees = <Employee>[];
     jobs = <Job>[];
     timesheetEntries = <TimesheetEntry>[];
-    activeTimers = <ActiveTimer>[];
-    billingEntries = <BillingEntry>[];
     notifyListeners();
   }
 
@@ -307,17 +286,30 @@ class BusinessProvider extends ChangeNotifier {
   }
 
   Future<void> addManualEntry({
-    required double hours,
     required DateTime date,
+    required DateTime startTime,
+    required DateTime endTime,
+    required double breakHours,
     required String jobId,
     String? customJobLabel,
     String notes = '',
   }) async {
+    final double elapsedHours = endTime.difference(startTime).inMinutes / 60;
+    if (elapsedHours <= 0) {
+      throw ArgumentError('End time must be after start time.');
+    }
+    if (breakHours < 0 || breakHours >= elapsedHours) {
+      throw ArgumentError('Break must be shorter than the shift.');
+    }
+    final double hours = elapsedHours - breakHours;
     final RecordModel record = await _backend.createTimesheet(<String, dynamic>{
       'employee': currentUser.id,
       'job': jobId == 'other' ? '' : jobId,
       'other_job': customJobLabel?.trim() ?? '',
       'date': date.toUtc().toIso8601String(),
+      'start_time': startTime.toUtc().toIso8601String(),
+      'end_time': endTime.toUtc().toIso8601String(),
+      'break_hours': breakHours,
       'hours': hours,
       'notes': notes.trim(),
       'approval_status': 'pending',
@@ -465,94 +457,4 @@ class BusinessProvider extends ChangeNotifier {
 
   bool hasPermission(Permission permission) =>
       currentUser.permissions.contains(permission);
-
-  bool canStartTimerForEmployee(String employeeId) =>
-      activeTimers.every((ActiveTimer timer) => timer.employeeId != employeeId);
-
-  void signIn(User user) {
-    currentUser = user;
-    notifyListeners();
-  }
-
-  void assignEmployeeToJob(String jobId, String employeeId) {
-    final int index = jobs.indexWhere((Job job) => job.id == jobId);
-    if (index < 0) return;
-    final Job job = jobs[index];
-    if (job.assignedEmployeeIds.contains(employeeId)) return;
-    updateJob(
-      Job(
-        id: job.id,
-        customerId: job.customerId,
-        referenceNumber: job.referenceNumber,
-        title: job.title,
-        description: job.description,
-        siteAddress: job.siteAddress,
-        status: job.status,
-        workflowStage: job.workflowStage,
-        scheduledDate: job.scheduledDate,
-        assignedEmployeeIds: <String>[...job.assignedEmployeeIds, employeeId],
-        notes: job.notes,
-        billingStatus: job.billingStatus,
-        createdAt: job.createdAt,
-        updatedAt: DateTime.now(),
-      ),
-    );
-  }
-
-  ActiveTimer? startTimer({
-    required String employeeId,
-    required String jobId,
-    String activity = 'General',
-    String notes = '',
-  }) {
-    final ActiveTimer? timer = _timesheetService.startTimer(
-      employeeId: employeeId,
-      jobId: jobId,
-      activity: activity,
-      notes: notes,
-      existingTimers: activeTimers,
-    );
-    if (timer != null) {
-      activeTimers = <ActiveTimer>[...activeTimers, timer];
-      notifyListeners();
-    }
-    return timer;
-  }
-
-  TimesheetEntry? stopTimer({
-    required ActiveTimer timer,
-    String workType = 'General',
-    String notes = '',
-    bool billable = true,
-    double quantityHours = 0,
-    double billingRate = 0,
-  }) {
-    final entry = _timesheetService.stopTimer(
-      timer: timer,
-      employeeId: timer.employeeId,
-      jobId: timer.jobId,
-      endTime: DateTime.now(),
-      workType: workType,
-      notes: notes,
-      billable: billable,
-      quantityHours: quantityHours,
-      billingRate: billingRate,
-    );
-    activeTimers = activeTimers
-        .where((active) => active.id != timer.id)
-        .toList();
-    timesheetEntries = <TimesheetEntry>[entry, ...timesheetEntries];
-    notifyListeners();
-    return entry;
-  }
-
-  double totalHoursForEmployee(String employeeId) => timesheetEntries
-      .where((entry) => entry.employeeId == employeeId)
-      .fold<double>(0, (total, entry) => total + entry.quantityHours);
-
-  List<TimesheetEntry> entriesForJob(String jobId) =>
-      timesheetEntries.where((entry) => entry.jobId == jobId).toList();
-
-  bool canViewBilling() => hasPermission(Permission.viewBilling);
-  bool canApproveTimesheets() => hasPermission(Permission.approveTimesheets);
 }

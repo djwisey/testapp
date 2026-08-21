@@ -356,8 +356,6 @@ class JobsScreen extends StatelessWidget {
                         children: <Widget>[
                           _Pill(job.status),
                           const SizedBox(width: 8),
-                          if (job.workflowStage != job.status)
-                            _Pill(job.workflowStage),
                         ],
                       ),
                       const SizedBox(height: 8),
@@ -688,19 +686,41 @@ class _AddEntrySheet extends StatefulWidget {
 class _AddEntrySheetState extends State<_AddEntrySheet> {
   String? _jobId;
   final TextEditingController _customJobCtrl = TextEditingController();
-  final TextEditingController _hoursCtrl = TextEditingController();
+  final TextEditingController _breakCtrl = TextEditingController(text: '1');
   final TextEditingController _notesCtrl = TextEditingController();
   DateTime _date = DateTime.now();
+  TimeOfDay _startTime = const TimeOfDay(hour: 8, minute: 0);
+  TimeOfDay _endTime = const TimeOfDay(hour: 17, minute: 0);
   String? _error;
   bool _busy = false;
 
   @override
   void dispose() {
     _customJobCtrl.dispose();
-    _hoursCtrl.dispose();
+    _breakCtrl.dispose();
     _notesCtrl.dispose();
     super.dispose();
   }
+
+  Future<void> _pickTime({required bool start}) async {
+    final TimeOfDay? picked = await showTimePicker(
+      context: context,
+      initialTime: start ? _startTime : _endTime,
+    );
+    if (picked != null) {
+      setState(() {
+        if (start) {
+          _startTime = picked;
+        } else {
+          _endTime = picked;
+        }
+        _error = null;
+      });
+    }
+  }
+
+  DateTime _onSelectedDate(TimeOfDay time) =>
+      DateTime(_date.year, _date.month, _date.day, time.hour, time.minute);
 
   Future<void> _pickDate() async {
     final DateTime? picked = await showDatePicker(
@@ -713,7 +733,9 @@ class _AddEntrySheetState extends State<_AddEntrySheet> {
   }
 
   Future<void> _submit() async {
-    final double? hours = double.tryParse(_hoursCtrl.text.trim());
+    final double? breakHours = double.tryParse(_breakCtrl.text.trim());
+    final DateTime startTime = _onSelectedDate(_startTime);
+    final DateTime endTime = _onSelectedDate(_endTime);
     if (_jobId == null) {
       setState(() => _error = 'Select a job first.');
       return;
@@ -722,8 +744,13 @@ class _AddEntrySheetState extends State<_AddEntrySheet> {
       setState(() => _error = 'Describe the job.');
       return;
     }
-    if (hours == null || hours <= 0) {
-      setState(() => _error = 'Enter valid hours (e.g. 7.5).');
+    if (!endTime.isAfter(startTime)) {
+      setState(() => _error = 'End time must be after start time.');
+      return;
+    }
+    final double elapsedHours = endTime.difference(startTime).inMinutes / 60;
+    if (breakHours == null || breakHours < 0 || breakHours >= elapsedHours) {
+      setState(() => _error = 'Enter a valid break, such as 1 hour.');
       return;
     }
     setState(() {
@@ -732,8 +759,10 @@ class _AddEntrySheetState extends State<_AddEntrySheet> {
     });
     try {
       await context.read<BusinessProvider>().addManualEntry(
-        hours: hours,
         date: _date,
+        startTime: startTime,
+        endTime: endTime,
+        breakHours: breakHours,
         jobId: _jobId!,
         customJobLabel: _jobId == 'other' ? _customJobCtrl.text.trim() : null,
         notes: _notesCtrl.text.trim(),
@@ -769,7 +798,7 @@ class _AddEntrySheetState extends State<_AddEntrySheet> {
             children: <Widget>[
               const Expanded(
                 child: Text(
-                  'Add Hours',
+                  'Add Timesheet',
                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
                 ),
               ),
@@ -824,15 +853,33 @@ class _AddEntrySheetState extends State<_AddEntrySheet> {
             ),
           ],
           const SizedBox(height: 12),
-          TextField(
-            controller: _hoursCtrl,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: InputDecoration(
-              labelText: 'Hours worked (e.g. 7.5)',
-              prefixIcon: const Icon(Icons.access_time),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.login),
+                  label: Text('Start ${_startTime.format(context)}'),
+                  onPressed: () => _pickTime(start: true),
+                ),
               ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.logout),
+                  label: Text('End ${_endTime.format(context)}'),
+                  onPressed: () => _pickTime(start: false),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _breakCtrl,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              labelText: 'Break in hours (e.g. 1)',
+              prefixIcon: Icon(Icons.free_breakfast_outlined),
+              helperText: 'Enter the duration only, not specific break times.',
             ),
           ),
           const SizedBox(height: 12),
@@ -863,7 +910,7 @@ class _AddEntrySheetState extends State<_AddEntrySheet> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Text(
-                      'Add Entry',
+                      'Save Timesheet',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
@@ -895,6 +942,10 @@ class _TimesheetEntryCard extends StatelessWidget {
     final String subtitle = <String>[
       if (showEmployee) _employeeName(provider, entry.employeeId),
       DateFormat('EEE d MMM').format(entry.date),
+      if (entry.startTime != null && entry.endTime != null)
+        '${DateFormat.Hm().format(entry.startTime!)}â€“${DateFormat.Hm().format(entry.endTime!)}',
+      if (entry.breakHours > 0)
+        '${entry.breakHours.toStringAsFixed(entry.breakHours % 1 == 0 ? 0 : 2)} hr break',
       '${entry.quantityHours.toStringAsFixed(1)} hrs',
     ].join('  \u2022  ');
 
@@ -1046,17 +1097,14 @@ class _JobFormSheetState extends State<_JobFormSheet> {
         await provider.updateJob(
           Job(
             id: widget.editJob!.id,
-            customerId: widget.editJob!.customerId,
             referenceNumber: _refCtrl.text.trim(),
             title: _titleCtrl.text.trim(),
             description: _descCtrl.text.trim(),
             siteAddress: _addressCtrl.text.trim(),
             status: _status,
-            workflowStage: _status,
             scheduledDate: _scheduledDate,
             assignedEmployeeIds: _assignedEmployeeIds,
             notes: _notesCtrl.text.trim(),
-            billingStatus: widget.editJob!.billingStatus,
             createdAt: widget.editJob!.createdAt,
             updatedAt: DateTime.now(),
           ),
