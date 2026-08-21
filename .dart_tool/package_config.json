@@ -386,6 +386,12 @@
       "languageVersion": "3.0"
     },
     {
+      "name": "pocketbase",
+      "rootUri": "file:///C:/Users/dylan/AppData/Local/Pub/Cache/hosted/pub.dev/pocketbase-0.24.1",
+      "packageUri": "lib/",
+      "languageVersion": "3.0"
+    },
+    {
       "name": "posix",
       "rootUri": "file:///C:/Users/dylan/AppData/Local/Pub/Cache/hosted/pub.dev/posix-6.5.2",
       "packageUri": "lib/",

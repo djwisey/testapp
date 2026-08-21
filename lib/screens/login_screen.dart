@@ -30,13 +30,15 @@ class _LoginScreenState extends State<LoginScreen> {
       _error = null;
       _loading = true;
     });
-    final bool ok = context.read<BusinessProvider>().signInWithCredentials(
-          _emailCtrl.text.trim(),
-          _passwordCtrl.text,
-        );
+    final BusinessProvider provider = context.read<BusinessProvider>();
+    final bool ok = await provider.signInWithCredentials(
+      _emailCtrl.text.trim(),
+      _passwordCtrl.text,
+    );
+    if (!mounted) return;
     setState(() => _loading = false);
     if (!ok) {
-      setState(() => _error = 'Invalid email or password.');
+      setState(() => _error = provider.lastError ?? 'Invalid email or password.');
     }
   }
 

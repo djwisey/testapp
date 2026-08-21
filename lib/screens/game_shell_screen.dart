@@ -375,6 +375,10 @@ class ProfileScreen extends StatelessWidget {
               subtitle: const Text('Your role'),
             ),
           ),
+          if (provider.hasPermission(Permission.manageEmployees)) ...<Widget>[
+            const SizedBox(height: 12),
+            const _ManagerWorkersCard(),
+          ],
           const SizedBox(height: 32),
           OutlinedButton.icon(
             style: OutlinedButton.styleFrom(
@@ -500,7 +504,7 @@ class _AddEntrySheetState extends State<_AddEntrySheet> {
     if (picked != null) setState(() => _date = picked);
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     final double? hours = double.tryParse(_hoursCtrl.text.trim());
     if (_jobId == null) {
       setState(() => _error = 'Select a job first.');
@@ -514,14 +518,18 @@ class _AddEntrySheetState extends State<_AddEntrySheet> {
       setState(() => _error = 'Enter valid hours (e.g. 7.5).');
       return;
     }
-    context.read<BusinessProvider>().addManualEntry(
+    try {
+      await context.read<BusinessProvider>().addManualEntry(
       hours: hours,
       date: _date,
       jobId: _jobId!,
       customJobLabel: _jobId == 'other' ? _customJobCtrl.text.trim() : null,
       notes: _notesCtrl.text.trim(),
-    );
-    Navigator.of(context).pop();
+      );
+      if (mounted) Navigator.of(context).pop();
+    } catch (error) {
+      if (mounted) setState(() => _error = 'Could not save hours: $error');
+    }
   }
 
   @override
@@ -710,6 +718,7 @@ class _JobFormSheetState extends State<_JobFormSheet> {
   late final TextEditingController _notesCtrl;
   late DateTime _scheduledDate;
   late String _status;
+  late List<String> _assignedEmployeeIds;
   String? _error;
 
   static const List<String> _statusOptions = <String>[
@@ -730,6 +739,7 @@ class _JobFormSheetState extends State<_JobFormSheet> {
     _notesCtrl = TextEditingController(text: job?.notes ?? '');
     _scheduledDate = job?.scheduledDate ?? DateTime.now().add(const Duration(days: 1));
     _status = job?.status ?? 'New';
+    _assignedEmployeeIds = <String>[...?job?.assignedEmployeeIds];
   }
 
   @override
@@ -752,7 +762,7 @@ class _JobFormSheetState extends State<_JobFormSheet> {
     if (picked != null) setState(() => _scheduledDate = picked);
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     if (_titleCtrl.text.trim().isEmpty) {
       setState(() => _error = 'Job title is required.');
       return;
@@ -763,7 +773,7 @@ class _JobFormSheetState extends State<_JobFormSheet> {
     }
     final BusinessProvider provider = context.read<BusinessProvider>();
     if (widget.editJob != null) {
-      provider.updateJob(Job(
+      await provider.updateJob(Job(
         id: widget.editJob!.id,
         customerId: widget.editJob!.customerId,
         referenceNumber: _refCtrl.text.trim(),
@@ -773,14 +783,14 @@ class _JobFormSheetState extends State<_JobFormSheet> {
         status: _status,
         workflowStage: _status,
         scheduledDate: _scheduledDate,
-        assignedEmployeeIds: widget.editJob!.assignedEmployeeIds,
+        assignedEmployeeIds: _assignedEmployeeIds,
         notes: _notesCtrl.text.trim(),
         billingStatus: widget.editJob!.billingStatus,
         createdAt: widget.editJob!.createdAt,
         updatedAt: DateTime.now(),
       ));
     } else {
-      provider.addJob(
+      await provider.addJob(
         title: _titleCtrl.text.trim(),
         referenceNumber: _refCtrl.text.trim(),
         siteAddress: _addressCtrl.text.trim(),
@@ -788,9 +798,10 @@ class _JobFormSheetState extends State<_JobFormSheet> {
         scheduledDate: _scheduledDate,
         status: _status,
         notes: _notesCtrl.text.trim(),
+        assignedEmployeeIds: _assignedEmployeeIds,
       );
     }
-    Navigator.of(context).pop();
+    if (mounted) Navigator.of(context).pop();
   }
 
   @override
@@ -863,6 +874,36 @@ class _JobFormSheetState extends State<_JobFormSheet> {
               onPressed: _pickDate,
             ),
             const SizedBox(height: 12),
+            Builder(
+              builder: (BuildContext context) {
+                final List<Employee> workers = context.watch<BusinessProvider>().employees
+                    .where((Employee employee) => employee.roleId == 'employee' && employee.active)
+                    .toList();
+                if (workers.isEmpty) return const SizedBox.shrink();
+                return InputDecorator(
+                  decoration: _decor('Assigned workers'),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: workers.map((Employee worker) {
+                      final bool selected = _assignedEmployeeIds.contains(worker.id);
+                      return FilterChip(
+                        label: Text(worker.name),
+                        selected: selected,
+                        onSelected: (bool value) => setState(() {
+                          if (value) {
+                            _assignedEmployeeIds.add(worker.id);
+                          } else {
+                            _assignedEmployeeIds.remove(worker.id);
+                          }
+                        }),
+                      );
+                    }).toList(),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 12),
             TextField(
               controller: _notesCtrl,
               decoration: _decor('Notes (optional)'),
@@ -882,6 +923,31 @@ class _JobFormSheetState extends State<_JobFormSheet> {
                 ),
               ),
             ),
+            if (isEdit) ...<Widget>[
+              const SizedBox(height: 8),
+              TextButton.icon(
+                style: TextButton.styleFrom(foregroundColor: Colors.red),
+                icon: const Icon(Icons.delete_outline),
+                label: const Text('Delete Job'),
+                onPressed: () async {
+                  final bool? confirmed = await showDialog<bool>(
+                    context: context,
+                    builder: (BuildContext context) => AlertDialog(
+                      title: const Text('Delete job?'),
+                      content: const Text('Existing timesheets will retain their recorded hours, but the job will no longer be selectable.'),
+                      actions: <Widget>[
+                        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+                        FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
+                      ],
+                    ),
+                  );
+                  if (confirmed == true && mounted) {
+                    await context.read<BusinessProvider>().deleteJob(widget.editJob!.id);
+                    if (mounted) Navigator.of(context).pop();
+                  }
+                },
+              ),
+            ],
           ],
         ),
       ),
@@ -894,3 +960,243 @@ class _JobFormSheetState extends State<_JobFormSheet> {
       );
 }
 
+
+class _ManagerWorkersCard extends StatelessWidget {
+  const _ManagerWorkersCard();
+
+  Future<void> _openWorkerDialog(BuildContext context, {Employee? employee}) async {
+    final BusinessProvider provider = context.read<BusinessProvider>();
+    await showDialog<void>(
+      context: context,
+      builder: (BuildContext dialogContext) => ChangeNotifierProvider<BusinessProvider>.value(
+        value: provider,
+        child: _WorkerDialog(employee: employee),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final BusinessProvider provider = context.watch<BusinessProvider>();
+    final List<Employee> workers = provider.employees
+        .where((Employee employee) => employee.roleId == 'employee')
+        .toList();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                const Expanded(
+                  child: Text('Workers', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+                ),
+                IconButton(
+                  tooltip: 'Refresh workers',
+                  onPressed: provider.refreshEmployees,
+                  icon: const Icon(Icons.refresh),
+                ),
+                FilledButton.icon(
+                  onPressed: () => _openWorkerDialog(context),
+                  icon: const Icon(Icons.person_add_alt_1),
+                  label: const Text('Add'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            if (workers.isEmpty)
+              const Text('No worker accounts yet.')
+            else
+              for (final Employee worker in workers)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: CircleAvatar(
+                    child: Text(worker.name.isEmpty ? '?' : worker.name[0].toUpperCase()),
+                  ),
+                  title: Text(worker.name),
+                  subtitle: Text('${worker.email}${worker.active ? '' : ' • Disabled'}'),
+                  trailing: IconButton(
+                    tooltip: 'Manage worker',
+                    icon: const Icon(Icons.manage_accounts_outlined),
+                    onPressed: () => _openWorkerDialog(context, employee: worker),
+                  ),
+                ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _WorkerDialog extends StatefulWidget {
+  const _WorkerDialog({this.employee});
+  final Employee? employee;
+
+  @override
+  State<_WorkerDialog> createState() => _WorkerDialogState();
+}
+
+class _WorkerDialogState extends State<_WorkerDialog> {
+  late final TextEditingController _name;
+  late final TextEditingController _email;
+  late final TextEditingController _jobTitle;
+  final TextEditingController _password = TextEditingController();
+  bool _active = true;
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    final Employee? employee = widget.employee;
+    _name = TextEditingController(text: employee?.name ?? '');
+    _email = TextEditingController(text: employee?.email ?? '');
+    _jobTitle = TextEditingController(text: employee?.jobTitle ?? '');
+    _active = employee?.active ?? true;
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _email.dispose();
+    _jobTitle.dispose();
+    _password.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (_name.text.trim().isEmpty || _email.text.trim().isEmpty) {
+      setState(() => _error = 'Name and email are required.');
+      return;
+    }
+    if (widget.employee == null && _password.text.length < 8) {
+      setState(() => _error = 'New workers need a password of at least 8 characters.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final BusinessProvider provider = context.read<BusinessProvider>();
+      if (widget.employee == null) {
+        await provider.createWorker(
+          name: _name.text,
+          email: _email.text,
+          password: _password.text,
+          jobTitle: _jobTitle.text,
+        );
+      } else {
+        final Employee old = widget.employee!;
+        await provider.updateWorker(Employee(
+          id: old.id,
+          name: _name.text.trim(),
+          email: _email.text.trim(),
+          roleId: old.roleId,
+          permissions: old.permissions,
+          jobTitle: _jobTitle.text.trim(),
+          active: _active,
+        ));
+      }
+      if (mounted) Navigator.of(context).pop();
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _resetPassword() async {
+    if (_password.text.length < 8) {
+      setState(() => _error = 'Enter a new password of at least 8 characters first.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await context.read<BusinessProvider>().resetWorkerPassword(widget.employee!.id, _password.text);
+      if (mounted) {
+        _password.clear();
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Worker password reset.')));
+      }
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _delete() async {
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete worker?'),
+        content: const Text('This removes the worker account. Historical timesheets should be reviewed before deletion.'),
+        actions: <Widget>[
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await context.read<BusinessProvider>().deleteWorker(widget.employee!.id);
+      if (mounted) Navigator.of(context).pop();
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bool editing = widget.employee != null;
+    return AlertDialog(
+      title: Text(editing ? 'Manage Worker' : 'Add Worker'),
+      content: SizedBox(
+        width: 460,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              TextField(controller: _name, decoration: const InputDecoration(labelText: 'Name')),
+              TextField(controller: _email, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: 'Email')),
+              TextField(controller: _jobTitle, decoration: const InputDecoration(labelText: 'Job title')),
+              TextField(
+                controller: _password,
+                obscureText: true,
+                decoration: InputDecoration(labelText: editing ? 'New password (only to reset)' : 'Temporary password'),
+              ),
+              if (editing)
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Account active'),
+                  value: _active,
+                  onChanged: (value) => setState(() => _active = value),
+                ),
+              if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(_error!, style: const TextStyle(color: Colors.red)),
+                ),
+            ],
+          ),
+        ),
+      ),
+      actions: <Widget>[
+        if (editing)
+          TextButton(
+            onPressed: _busy ? null : _delete,
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        if (editing)
+          TextButton(onPressed: _busy ? null : _resetPassword, child: const Text('Reset Password')),
+        TextButton(onPressed: _busy ? null : () => Navigator.pop(context), child: const Text('Cancel')),
+        FilledButton(onPressed: _busy ? null : _save, child: Text(editing ? 'Save' : 'Create Worker')),
+      ],
+    );
+  }
+}

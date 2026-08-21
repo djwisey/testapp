@@ -1,45 +1,28 @@
 import 'package:flutter/foundation.dart';
+import 'package:pocketbase/pocketbase.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/workflow_models.dart';
+import '../services/pocketbase_service.dart';
 import '../services/timesheet_service.dart';
 
 class BusinessProvider extends ChangeNotifier {
-  BusinessProvider({Uuid? uuid, TimesheetService? timesheetService})
-      : _uuid = uuid ?? const Uuid(),
-        _timesheetService = timesheetService ?? TimesheetService(uuid: uuid ?? const Uuid());
+  BusinessProvider({
+    Uuid? uuid,
+    TimesheetService? timesheetService,
+    PocketBaseService? backend,
+  })  : _uuid = uuid ?? const Uuid(),
+        _timesheetService = timesheetService ?? TimesheetService(uuid: uuid ?? const Uuid()),
+        _backend = backend ?? PocketBaseService();
 
   final Uuid _uuid;
   final TimesheetService _timesheetService;
-
-  Future<void> initialize() async {
-    notifyListeners();
-  }
+  final PocketBaseService _backend;
 
   int selectedTabIndex = 0;
   bool isAuthenticated = false;
-
-  final List<Role> roles = <Role>[
-    const Role(
-      id: 'employee',
-      name: 'Employee',
-      permissions: <Permission>{
-        Permission.viewJobs,
-        Permission.viewBilling,
-      },
-    ),
-    const Role(
-      id: 'manager',
-      name: 'Manager',
-      permissions: <Permission>{
-        Permission.viewJobs,
-        Permission.editJobs,
-        Permission.approveTimesheets,
-        Permission.viewBilling,
-        Permission.manageEmployees,
-      },
-    ),
-  ];
+  bool isLoading = false;
+  String? lastError;
 
   User currentUser = const User(
     id: '',
@@ -49,151 +32,171 @@ class BusinessProvider extends ChangeNotifier {
     permissions: <Permission>{Permission.viewJobs},
   );
 
-  final List<Customer> customers = <Customer>[
-    const Customer(
-      id: 'cust-1',
-      name: 'Perth City Council',
-      contactName: 'Rachel Moore',
-      phone: '0400 200 300',
-      email: 'contracts@perth.wa.gov.au',
-      address: '27 St Georges Terrace, Perth',
-    ),
-  ];
-
-  final List<Employee> employees = <Employee>[
-    const Employee(
-      id: 'emp-001',
-      name: 'Aiden Hart',
-      email: 'worker@emnplant.com',
-      roleId: 'employee',
-      permissions: <Permission>{Permission.viewJobs, Permission.viewBilling},
-      employeeNumber: 'EMP-001',
-      department: 'Field Services',
-      hireDate: null,
-    ),
-    const Employee(
-      id: 'emp-002',
-      name: 'Dylan Wiseman',
-      email: 'dylan@emnplant.com',
-      roleId: 'manager',
-      permissions: <Permission>{
-        Permission.viewJobs,
-        Permission.editJobs,
-        Permission.approveTimesheets,
-        Permission.viewBilling,
-        Permission.manageEmployees,
-      },
-      employeeNumber: 'EMP-002',
-      department: 'Operations',
-      hireDate: null,
-    ),
-  ];
-
-  final List<Job> jobs = <Job>[
-    Job(
-      id: 'job-101',
-      customerId: 'cust-1',
-      referenceNumber: 'EMN-101',
-      title: 'Excavation – Miller St',
-      description: 'Site excavation for residential foundations.',
-      siteAddress: '14 Miller St, Perth',
-      status: 'In Progress',
-      workflowStage: 'In Progress',
-      scheduledDate: DateTime.now(),
-      assignedEmployeeIds: <String>['emp-001', 'emp-002'],
-      notes: '',
-      billingStatus: 'Pending',
-      createdAt: DateTime.now().subtract(const Duration(days: 2)),
-      updatedAt: DateTime.now(),
-    ),
-    Job(
-      id: 'job-102',
-      customerId: 'cust-1',
-      referenceNumber: 'EMN-102',
-      title: 'Site Clearing – Eastern Ave',
-      description: 'Clear and level site for new commercial development.',
-      siteAddress: '88 Eastern Ave, Perth',
-      status: 'Scheduled',
-      workflowStage: 'Scheduled',
-      scheduledDate: DateTime.now().add(const Duration(days: 2)),
-      assignedEmployeeIds: <String>['emp-001'],
-      notes: '',
-      billingStatus: 'Pending',
-      createdAt: DateTime.now().subtract(const Duration(days: 1)),
-      updatedAt: DateTime.now(),
-    ),
-    Job(
-      id: 'job-103',
-      customerId: 'cust-1',
-      referenceNumber: 'EMN-103',
-      title: 'Trench Work – Riverside Dr',
-      description: 'Trench excavation for stormwater drainage.',
-      siteAddress: '33 Riverside Dr, Perth',
-      status: 'Scheduled',
-      workflowStage: 'New',
-      scheduledDate: DateTime.now().add(const Duration(days: 5)),
-      assignedEmployeeIds: <String>[],
-      notes: 'Requires safety officer on site.',
-      billingStatus: 'Pending',
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
-    ),
-    Job(
-      id: 'job-104',
-      customerId: 'cust-1',
-      referenceNumber: 'EMN-104',
-      title: 'Machine Servicing – Workshop',
-      description: 'Routine service and inspection for plant fleet.',
-      siteAddress: 'EMN Workshop, Malaga',
-      status: 'In Progress',
-      workflowStage: 'In Progress',
-      scheduledDate: DateTime.now(),
-      assignedEmployeeIds: <String>['emp-002'],
-      notes: '',
-      billingStatus: 'Ready for review',
-      createdAt: DateTime.now().subtract(const Duration(days: 4)),
-      updatedAt: DateTime.now(),
-    ),
-  ];
-
+  List<Employee> employees = <Employee>[];
+  List<Job> jobs = <Job>[];
   List<ActiveTimer> activeTimers = <ActiveTimer>[];
   List<TimesheetEntry> timesheetEntries = <TimesheetEntry>[];
   List<BillingEntry> billingEntries = <BillingEntry>[];
 
-  void selectTab(int index) {
-    selectedTabIndex = index;
+  // Retained for the existing timer unit tests. Timers are not persisted and are
+  // no longer the primary timesheet workflow in the UI.
+  final List<Customer> customers = <Customer>[
+    const Customer(
+      id: 'local-customer',
+      name: 'EMN Plant Customer',
+      contactName: '',
+      phone: '',
+      email: '',
+      address: '',
+    ),
+  ];
+
+  Future<void> initialize() async {
+    // A fresh app starts on login. PocketBase auth can be made persistent later
+    // without changing the repository/data abstraction introduced here.
     notifyListeners();
   }
 
-  bool signInWithCredentials(String email, String password) {
-    const Map<String, List<String>> accounts = <String, List<String>>{
-      'dylan@emnplant.com': <String>['EMNManager1', 'emp-002', 'Dylan Wiseman', 'manager'],
-      'worker@emnplant.com': <String>['EMNWorker1', 'emp-001', 'Aiden Hart', 'employee'],
-    };
-    final List<String>? creds = accounts[email.toLowerCase().trim()];
-    if (creds == null || creds[0] != password) return false;
-    currentUser = User(
-      id: creds[1],
-      name: creds[2],
-      email: email.toLowerCase().trim(),
-      roleId: creds[3],
-      permissions: creds[3] == 'manager'
-          ? <Permission>{
-              Permission.viewJobs,
-              Permission.editJobs,
-              Permission.approveTimesheets,
-              Permission.viewBilling,
-              Permission.manageEmployees,
-            }
-          : <Permission>{Permission.viewJobs, Permission.viewBilling},
+  Set<Permission> _permissionsForRole(String role) => role == 'manager'
+      ? <Permission>{
+          Permission.viewJobs,
+          Permission.editJobs,
+          Permission.approveTimesheets,
+          Permission.viewBilling,
+          Permission.manageEmployees,
+        }
+      : <Permission>{Permission.viewJobs, Permission.viewBilling};
+
+  User _userFromRecord(RecordModel record) {
+    final String role = record.getStringValue('role', 'employee');
+    return User(
+      id: record.id,
+      name: record.getStringValue('name', 'User'),
+      email: record.getStringValue('email'),
+      roleId: role,
+      permissions: _permissionsForRole(role),
     );
-    isAuthenticated = true;
-    selectedTabIndex = 0;
+  }
+
+  Employee _employeeFromRecord(RecordModel record) {
+    final String role = record.getStringValue('role', 'employee');
+    return Employee(
+      id: record.id,
+      name: record.getStringValue('name', 'Employee'),
+      email: record.getStringValue('email'),
+      roleId: role,
+      permissions: _permissionsForRole(role),
+      jobTitle: record.getStringValue('job_title'),
+      active: record.getBoolValue('active', true),
+    );
+  }
+
+  Job _jobFromRecord(RecordModel record) {
+    final DateTime now = DateTime.now();
+    final String scheduled = record.getStringValue('scheduled_date');
+    return Job(
+      id: record.id,
+      customerId: '',
+      referenceNumber: record.getStringValue('reference'),
+      title: record.getStringValue('title'),
+      description: record.getStringValue('description'),
+      siteAddress: record.getStringValue('site_address'),
+      status: record.getStringValue('status', 'New'),
+      workflowStage: record.getStringValue('status', 'New'),
+      scheduledDate: DateTime.tryParse(scheduled)?.toLocal() ?? now,
+      assignedEmployeeIds: record.getListValue<String>('assigned_employees'),
+      notes: record.getStringValue('notes'),
+      billingStatus: 'Pending',
+      createdAt: DateTime.tryParse(record.created)?.toLocal() ?? now,
+      updatedAt: DateTime.tryParse(record.updated)?.toLocal() ?? now,
+    );
+  }
+
+  TimesheetEntry _timesheetFromRecord(RecordModel record) {
+    final DateTime now = DateTime.now();
+    final DateTime date = DateTime.tryParse(record.getStringValue('date'))?.toLocal() ?? now;
+    final double hours = record.getDoubleValue('hours');
+    final String approval = record.getStringValue('approval_status', 'pending');
+    return TimesheetEntry(
+      id: record.id,
+      employeeId: record.getStringValue('employee'),
+      jobId: record.getStringValue('job'),
+      date: date,
+      startTime: date,
+      endTime: date.add(Duration(minutes: (hours * 60).round())),
+      durationMinutes: (hours * 60).round(),
+      workType: record.getStringValue('other_job'),
+      notes: record.getStringValue('notes'),
+      billable: true,
+      quantityHours: hours,
+      billingRate: 0,
+      approvalStatus: approval.isEmpty
+          ? 'Pending'
+          : '${approval[0].toUpperCase()}${approval.substring(1)}',
+      createdAt: DateTime.tryParse(record.created)?.toLocal() ?? now,
+      modifiedAt: DateTime.tryParse(record.updated)?.toLocal() ?? now,
+      customJobLabel: record.getStringValue('other_job').isEmpty
+          ? null
+          : record.getStringValue('other_job'),
+    );
+  }
+
+  Future<bool> signInWithCredentials(String email, String password) async {
+    isLoading = true;
+    lastError = null;
     notifyListeners();
-    return true;
+    try {
+      final RecordModel record = await _backend.signIn(email, password);
+      currentUser = _userFromRecord(record);
+      isAuthenticated = true;
+      selectedTabIndex = 0;
+      await refreshAll();
+      return true;
+    } on ClientException catch (error) {
+      lastError = error.response['message']?.toString() ?? 'Invalid email or password.';
+      isAuthenticated = false;
+      return false;
+    } catch (_) {
+      lastError = 'Unable to connect to the EMN server. Check your internet connection.';
+      isAuthenticated = false;
+      return false;
+    } finally {
+      isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> refreshAll() async {
+    if (!isAuthenticated) return;
+    final List<Future<void>> tasks = <Future<void>>[
+      refreshJobs(),
+      refreshTimesheets(),
+      if (hasPermission(Permission.manageEmployees)) refreshEmployees(),
+    ];
+    await Future.wait(tasks);
+  }
+
+  Future<void> refreshEmployees() async {
+    if (!hasPermission(Permission.manageEmployees)) return;
+    final records = await _backend.getUsers();
+    employees = records.map(_employeeFromRecord).toList();
+    notifyListeners();
+  }
+
+  Future<void> refreshJobs() async {
+    final records = await _backend.getJobs();
+    jobs = records.map(_jobFromRecord).toList();
+    notifyListeners();
+  }
+
+  Future<void> refreshTimesheets() async {
+    final records = await _backend.getTimesheets();
+    timesheetEntries = records.map(_timesheetFromRecord).toList();
+    notifyListeners();
   }
 
   void signOut() {
+    _backend.signOut();
     isAuthenticated = false;
     selectedTabIndex = 0;
     currentUser = const User(
@@ -203,41 +206,153 @@ class BusinessProvider extends ChangeNotifier {
       roleId: 'employee',
       permissions: <Permission>{Permission.viewJobs},
     );
+    employees = <Employee>[];
+    jobs = <Job>[];
     timesheetEntries = <TimesheetEntry>[];
     activeTimers = <ActiveTimer>[];
     billingEntries = <BillingEntry>[];
     notifyListeners();
   }
 
-  void addManualEntry({
+  void selectTab(int index) {
+    selectedTabIndex = index;
+    notifyListeners();
+  }
+
+  Future<void> addManualEntry({
     required double hours,
     required DateTime date,
     required String jobId,
     String? customJobLabel,
     String notes = '',
-  }) {
-    final DateTime now = DateTime.now();
-    final TimesheetEntry entry = TimesheetEntry(
-      id: _uuid.v4(),
-      employeeId: currentUser.id,
-      jobId: jobId,
-      date: date,
-      startTime: date,
-      endTime: date.add(Duration(minutes: (hours * 60).round())),
-      durationMinutes: (hours * 60).round(),
-      workType: customJobLabel ?? _jobTitle(jobId),
-      notes: notes,
-      billable: true,
-      quantityHours: hours,
-      billingRate: 0,
-      approvalStatus: 'Pending',
-      createdAt: now,
-      modifiedAt: now,
-      customJobLabel: customJobLabel,
-    );
-    timesheetEntries = <TimesheetEntry>[entry, ...timesheetEntries];
+  }) async {
+    final RecordModel record = await _backend.createTimesheet(<String, dynamic>{
+      'employee': currentUser.id,
+      'job': jobId == 'other' ? '' : jobId,
+      'other_job': customJobLabel?.trim() ?? '',
+      'date': date.toUtc().toIso8601String(),
+      'hours': hours,
+      'notes': notes.trim(),
+      'approval_status': 'pending',
+    });
+    timesheetEntries = <TimesheetEntry>[_timesheetFromRecord(record), ...timesheetEntries];
     notifyListeners();
   }
+
+  String nextJobReference() {
+    int max = 100;
+    for (final Job job in jobs) {
+      final int? num = int.tryParse(job.referenceNumber.replaceAll(RegExp(r'[^0-9]'), ''));
+      if (num != null && num > max) max = num;
+    }
+    return 'EMN-${max + 1}';
+  }
+
+  Future<void> addJob({
+    required String title,
+    required String referenceNumber,
+    required String siteAddress,
+    String description = '',
+    required DateTime scheduledDate,
+    String status = 'New',
+    String notes = '',
+    List<String> assignedEmployeeIds = const <String>[],
+  }) async {
+    final record = await _backend.createJob(<String, dynamic>{
+      'reference': referenceNumber.trim(),
+      'title': title.trim(),
+      'description': description.trim(),
+      'site_address': siteAddress.trim(),
+      'status': status,
+      'scheduled_date': scheduledDate.toUtc().toIso8601String(),
+      'notes': notes.trim(),
+      'active': true,
+      'assigned_employees': assignedEmployeeIds,
+      'created_by': currentUser.id,
+    });
+    jobs = <Job>[...jobs, _jobFromRecord(record)];
+    notifyListeners();
+  }
+
+  Future<void> updateJob(Job updatedJob) async {
+    final record = await _backend.updateJob(updatedJob.id, <String, dynamic>{
+      'reference': updatedJob.referenceNumber,
+      'title': updatedJob.title,
+      'description': updatedJob.description,
+      'site_address': updatedJob.siteAddress,
+      'status': updatedJob.status,
+      'scheduled_date': updatedJob.scheduledDate.toUtc().toIso8601String(),
+      'notes': updatedJob.notes,
+      'assigned_employees': updatedJob.assignedEmployeeIds,
+    });
+    final int index = jobs.indexWhere((Job job) => job.id == updatedJob.id);
+    if (index >= 0) jobs[index] = _jobFromRecord(record);
+    notifyListeners();
+  }
+
+  Future<void> deleteJob(String id) async {
+    await _backend.deleteJob(id);
+    jobs.removeWhere((Job job) => job.id == id);
+    notifyListeners();
+  }
+
+  Future<void> approveEntry(String entryId) async {
+    final record = await _backend.updateTimesheet(entryId, <String, dynamic>{
+      'approval_status': 'approved',
+      'approved_by': currentUser.id,
+      'approved_at': DateTime.now().toUtc().toIso8601String(),
+    });
+    final int index = timesheetEntries.indexWhere((entry) => entry.id == entryId);
+    if (index >= 0) timesheetEntries[index] = _timesheetFromRecord(record);
+    notifyListeners();
+  }
+
+  Future<void> createWorker({
+    required String name,
+    required String email,
+    required String password,
+    String jobTitle = '',
+  }) async {
+    final record = await _backend.createWorker(
+      name: name,
+      email: email,
+      password: password,
+      jobTitle: jobTitle,
+    );
+    employees = <Employee>[...employees, _employeeFromRecord(record)]
+      ..sort((a, b) => a.name.compareTo(b.name));
+    notifyListeners();
+  }
+
+  Future<void> updateWorker(Employee employee) async {
+    final record = await _backend.updateWorker(
+      id: employee.id,
+      name: employee.name,
+      email: employee.email,
+      active: employee.active,
+      jobTitle: employee.jobTitle,
+    );
+    final int index = employees.indexWhere((item) => item.id == employee.id);
+    if (index >= 0) employees[index] = _employeeFromRecord(record);
+    notifyListeners();
+  }
+
+  Future<void> resetWorkerPassword(String employeeId, String password) =>
+      _backend.resetWorkerPassword(employeeId, password);
+
+  Future<void> deleteWorker(String employeeId) async {
+    if (employeeId == currentUser.id) {
+      throw StateError('You cannot delete your own account.');
+    }
+    if (timesheetEntries.any((entry) => entry.employeeId == employeeId)) {
+      throw StateError('This worker has timesheet history. Disable the account instead of deleting it.');
+    }
+    await _backend.deleteWorker(employeeId);
+    employees.removeWhere((employee) => employee.id == employeeId);
+    notifyListeners();
+  }
+
+  bool hasPermission(Permission permission) => currentUser.permissions.contains(permission);
 
   String _jobTitle(String jobId) {
     for (final Job job in jobs) {
@@ -246,82 +361,8 @@ class BusinessProvider extends ChangeNotifier {
     return 'General';
   }
 
-  String nextJobReference() {
-    int max = 100;
-    for (final Job j in jobs) {
-      final int? num = int.tryParse(j.referenceNumber.replaceAll('EMN-', ''));
-      if (num != null && num > max) max = num;
-    }
-    return 'EMN-${max + 1}';
-  }
-
-  void addJob({
-    required String title,
-    required String referenceNumber,
-    required String siteAddress,
-    String description = '',
-    required DateTime scheduledDate,
-    String status = 'New',
-    String notes = '',
-  }) {
-    jobs.add(Job(
-      id: _uuid.v4(),
-      customerId: customers.isNotEmpty ? customers.first.id : '',
-      referenceNumber: referenceNumber,
-      title: title,
-      description: description,
-      siteAddress: siteAddress,
-      status: status,
-      workflowStage: status,
-      scheduledDate: scheduledDate,
-      assignedEmployeeIds: <String>[],
-      notes: notes,
-      billingStatus: 'Pending',
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
-    ));
-    notifyListeners();
-  }
-
-  void updateJob(Job updatedJob) {
-    final int index = jobs.indexWhere((Job j) => j.id == updatedJob.id);
-    if (index == -1) return;
-    jobs[index] = updatedJob;
-    notifyListeners();
-  }
-
-  void approveEntry(String entryId) {
-    timesheetEntries = timesheetEntries.map((TimesheetEntry e) {
-      if (e.id != entryId) return e;
-      return TimesheetEntry(
-        id: e.id,
-        employeeId: e.employeeId,
-        jobId: e.jobId,
-        date: e.date,
-        startTime: e.startTime,
-        endTime: e.endTime,
-        durationMinutes: e.durationMinutes,
-        workType: e.workType,
-        notes: e.notes,
-        billable: e.billable,
-        quantityHours: e.quantityHours,
-        billingRate: e.billingRate,
-        approvalStatus: 'Approved',
-        createdAt: e.createdAt,
-        modifiedAt: DateTime.now(),
-        customJobLabel: e.customJobLabel,
-      );
-    }).toList();
-    notifyListeners();
-  }
-
-  bool hasPermission(Permission permission) {
-    return currentUser.permissions.contains(permission);
-  }
-
-  bool canStartTimerForEmployee(String employeeId) {
-    return activeTimers.every((ActiveTimer timer) => timer.employeeId != employeeId);
-  }
+  bool canStartTimerForEmployee(String employeeId) =>
+      activeTimers.every((ActiveTimer timer) => timer.employeeId != employeeId);
 
   void signIn(User user) {
     currentUser = user;
@@ -330,32 +371,25 @@ class BusinessProvider extends ChangeNotifier {
 
   void assignEmployeeToJob(String jobId, String employeeId) {
     final int index = jobs.indexWhere((Job job) => job.id == jobId);
-    if (index == -1) {
-      return;
-    }
-
+    if (index < 0) return;
     final Job job = jobs[index];
-    final List<String> assigned = <String>[...job.assignedEmployeeIds];
-    if (!assigned.contains(employeeId)) {
-      assigned.add(employeeId);
-      jobs[index] = Job(
-        id: job.id,
-        customerId: job.customerId,
-        referenceNumber: job.referenceNumber,
-        title: job.title,
-        description: job.description,
-        siteAddress: job.siteAddress,
-        status: job.status,
-        workflowStage: job.workflowStage,
-        scheduledDate: job.scheduledDate,
-        assignedEmployeeIds: assigned,
-        notes: job.notes,
-        billingStatus: job.billingStatus,
-        createdAt: job.createdAt,
-        updatedAt: DateTime.now(),
-      );
-      notifyListeners();
-    }
+    if (job.assignedEmployeeIds.contains(employeeId)) return;
+    updateJob(Job(
+      id: job.id,
+      customerId: job.customerId,
+      referenceNumber: job.referenceNumber,
+      title: job.title,
+      description: job.description,
+      siteAddress: job.siteAddress,
+      status: job.status,
+      workflowStage: job.workflowStage,
+      scheduledDate: job.scheduledDate,
+      assignedEmployeeIds: <String>[...job.assignedEmployeeIds, employeeId],
+      notes: job.notes,
+      billingStatus: job.billingStatus,
+      createdAt: job.createdAt,
+      updatedAt: DateTime.now(),
+    ));
   }
 
   ActiveTimer? startTimer({
@@ -371,13 +405,10 @@ class BusinessProvider extends ChangeNotifier {
       notes: notes,
       existingTimers: activeTimers,
     );
-
-    if (timer == null) {
-      return null;
+    if (timer != null) {
+      activeTimers = <ActiveTimer>[...activeTimers, timer];
+      notifyListeners();
     }
-
-    activeTimers = <ActiveTimer>[...activeTimers, timer];
-    notifyListeners();
     return timer;
   }
 
@@ -389,52 +420,30 @@ class BusinessProvider extends ChangeNotifier {
     double quantityHours = 0,
     double billingRate = 0,
   }) {
-    final DateTime endTime = DateTime.now();
-    final TimesheetEntry entry = _timesheetService.stopTimer(
+    final entry = _timesheetService.stopTimer(
       timer: timer,
       employeeId: timer.employeeId,
       jobId: timer.jobId,
-      endTime: endTime,
+      endTime: DateTime.now(),
       workType: workType,
       notes: notes,
       billable: billable,
       quantityHours: quantityHours,
       billingRate: billingRate,
     );
-
-    activeTimers = activeTimers.where((ActiveTimer active) => active.id != timer.id).toList();
+    activeTimers = activeTimers.where((active) => active.id != timer.id).toList();
     timesheetEntries = <TimesheetEntry>[entry, ...timesheetEntries];
-    if (billable && billingRate > 0) {
-      billingEntries = <BillingEntry>[
-        BillingEntry(
-          id: _uuid.v4(),
-          jobId: timer.jobId,
-          employeeId: timer.employeeId,
-          label: workType,
-          quantity: entry.quantityHours,
-          rate: billingRate,
-          amount: entry.quantityHours * billingRate,
-          isBillable: true,
-          notes: notes,
-        ),
-        ...billingEntries,
-      ];
-    }
     notifyListeners();
     return entry;
   }
 
-  double totalHoursForEmployee(String employeeId) {
-    return timesheetEntries
-        .where((TimesheetEntry entry) => entry.employeeId == employeeId)
-        .fold<double>(0, (double total, TimesheetEntry entry) => total + entry.quantityHours);
-  }
+  double totalHoursForEmployee(String employeeId) => timesheetEntries
+      .where((entry) => entry.employeeId == employeeId)
+      .fold<double>(0, (total, entry) => total + entry.quantityHours);
 
-  List<TimesheetEntry> entriesForJob(String jobId) {
-    return timesheetEntries.where((TimesheetEntry entry) => entry.jobId == jobId).toList();
-  }
+  List<TimesheetEntry> entriesForJob(String jobId) =>
+      timesheetEntries.where((entry) => entry.jobId == jobId).toList();
 
   bool canViewBilling() => hasPermission(Permission.viewBilling);
-
   bool canApproveTimesheets() => hasPermission(Permission.approveTimesheets);
 }
