@@ -783,21 +783,74 @@ class _AddEntrySheetState extends State<_AddEntrySheet> {
     super.dispose();
   }
 
-  Future<void> _pickTime({required bool start}) async {
-    final TimeOfDay? picked = await showTimePicker(
-      context: context,
-      initialTime: start ? _startTime : _endTime,
+  Widget _timeInput({
+    required String label,
+    required TimeOfDay time,
+    required ValueChanged<TimeOfDay> onChanged,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 6),
+          child: Text(
+            label,
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+        ),
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: DropdownButtonFormField<int>(
+                initialValue: time.hour,
+                decoration: const InputDecoration(labelText: 'Hour'),
+                items: <DropdownMenuItem<int>>[
+                  for (int hour = 0; hour < 24; hour++)
+                    DropdownMenuItem<int>(
+                      value: hour,
+                      child: Text(hour.toString().padLeft(2, '0')),
+                    ),
+                ],
+                onChanged: _busy
+                    ? null
+                    : (int? hour) {
+                        if (hour != null) {
+                          onChanged(TimeOfDay(hour: hour, minute: time.minute));
+                        }
+                      },
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 6),
+              child: Text(
+                ':',
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+              ),
+            ),
+            Expanded(
+              child: DropdownButtonFormField<int>(
+                initialValue: time.minute,
+                decoration: const InputDecoration(labelText: 'Minutes'),
+                items: <DropdownMenuItem<int>>[
+                  for (int minute = 0; minute < 60; minute += 5)
+                    DropdownMenuItem<int>(
+                      value: minute,
+                      child: Text(minute.toString().padLeft(2, '0')),
+                    ),
+                ],
+                onChanged: _busy
+                    ? null
+                    : (int? minute) {
+                        if (minute != null) {
+                          onChanged(TimeOfDay(hour: time.hour, minute: minute));
+                        }
+                      },
+              ),
+            ),
+          ],
+        ),
+      ],
     );
-    if (picked != null) {
-      setState(() {
-        if (start) {
-          _startTime = picked;
-        } else {
-          _endTime = picked;
-        }
-        _error = null;
-      });
-    }
   }
 
   DateTime _onSelectedDate(TimeOfDay time) =>
@@ -871,135 +924,140 @@ class _AddEntrySheetState extends State<_AddEntrySheet> {
         24,
         MediaQuery.of(context).viewInsets.bottom + 24,
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          Row(
-            children: <Widget>[
-              const Expanded(
-                child: Text(
-                  'Add Timesheet',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                const Expanded(
+                  child: Text(
+                    'Add Timesheet',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.calendar_today_outlined),
+              label: Text(DateFormat('EEE d MMM y').format(_date)),
+              style: OutlinedButton.styleFrom(alignment: Alignment.centerLeft),
+              onPressed: _pickDate,
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              initialValue: _jobId,
+              hint: const Text('Select job'),
+              decoration: InputDecoration(
+                labelText: 'Job',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
                 ),
               ),
-              IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () => Navigator.of(context).pop(),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          OutlinedButton.icon(
-            icon: const Icon(Icons.calendar_today_outlined),
-            label: Text(DateFormat('EEE d MMM y').format(_date)),
-            style: OutlinedButton.styleFrom(alignment: Alignment.centerLeft),
-            onPressed: _pickDate,
-          ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            initialValue: _jobId,
-            hint: const Text('Select job'),
-            decoration: InputDecoration(
-              labelText: 'Job',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
+              items: <DropdownMenuItem<String>>[
+                ...jobs.map(
+                  (Job j) => DropdownMenuItem<String>(
+                    value: j.id,
+                    child: Text(j.title),
+                  ),
+                ),
+                const DropdownMenuItem<String>(
+                  value: 'other',
+                  child: Text('Other \u2013 describe below'),
+                ),
+              ],
+              onChanged: (String? v) => setState(() {
+                _jobId = v;
+                _error = null;
+              }),
             ),
-            items: <DropdownMenuItem<String>>[
-              ...jobs.map(
-                (Job j) =>
-                    DropdownMenuItem<String>(value: j.id, child: Text(j.title)),
-              ),
-              const DropdownMenuItem<String>(
-                value: 'other',
-                child: Text('Other \u2013 describe below'),
+            if (_jobId == 'other') ...<Widget>[
+              const SizedBox(height: 12),
+              TextField(
+                controller: _customJobCtrl,
+                decoration: InputDecoration(
+                  labelText: 'Describe job',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
               ),
             ],
-            onChanged: (String? v) => setState(() {
-              _jobId = v;
-              _error = null;
-            }),
-          ),
-          if (_jobId == 'other') ...<Widget>[
+            const SizedBox(height: 12),
+            _timeInput(
+              label: 'Start time (24-hour)',
+              time: _startTime,
+              onChanged: (TimeOfDay value) => setState(() {
+                _startTime = value;
+                _error = null;
+              }),
+            ),
+            const SizedBox(height: 12),
+            _timeInput(
+              label: 'End time (24-hour)',
+              time: _endTime,
+              onChanged: (TimeOfDay value) => setState(() {
+                _endTime = value;
+                _error = null;
+              }),
+            ),
             const SizedBox(height: 12),
             TextField(
-              controller: _customJobCtrl,
+              controller: _breakCtrl,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: const InputDecoration(
+                labelText: 'Break in hours (e.g. 1)',
+                prefixIcon: Icon(Icons.free_breakfast_outlined),
+                helperText:
+                    'Enter the duration only, not specific break times.',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _notesCtrl,
               decoration: InputDecoration(
-                labelText: 'Describe job',
+                labelText: 'Notes (optional)',
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(10),
                 ),
               ),
             ),
-          ],
-          const SizedBox(height: 12),
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: OutlinedButton.icon(
-                  icon: const Icon(Icons.login),
-                  label: Text('Start ${_startTime.format(context)}'),
-                  onPressed: () => _pickTime(start: true),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: OutlinedButton.icon(
-                  icon: const Icon(Icons.logout),
-                  label: Text('End ${_endTime.format(context)}'),
-                  onPressed: () => _pickTime(start: false),
-                ),
+            if (_error != null) ...<Widget>[
+              const SizedBox(height: 8),
+              Text(
+                _error!,
+                style: const TextStyle(color: Colors.red, fontSize: 13),
               ),
             ],
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _breakCtrl,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(
-              labelText: 'Break in hours (e.g. 1)',
-              prefixIcon: Icon(Icons.free_breakfast_outlined),
-              helperText: 'Enter the duration only, not specific break times.',
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _notesCtrl,
-            decoration: InputDecoration(
-              labelText: 'Notes (optional)',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
+            const SizedBox(height: 20),
+            FilledButton(
+              onPressed: _busy ? null : _submit,
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 4),
+                child: _busy
+                    ? const SizedBox.square(
+                        dimension: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text(
+                        'Save Timesheet',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
               ),
             ),
-          ),
-          if (_error != null) ...<Widget>[
-            const SizedBox(height: 8),
-            Text(
-              _error!,
-              style: const TextStyle(color: Colors.red, fontSize: 13),
-            ),
           ],
-          const SizedBox(height: 20),
-          FilledButton(
-            onPressed: _busy ? null : _submit,
-            child: Padding(
-              padding: EdgeInsets.symmetric(vertical: 4),
-              child: _busy
-                  ? const SizedBox.square(
-                      dimension: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text(
-                      'Save Timesheet',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
