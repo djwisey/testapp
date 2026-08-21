@@ -396,6 +396,87 @@ enum _TimesheetView { mine, team }
 class _TimesheetScreenState extends State<TimesheetScreen> {
   _TimesheetView _view = _TimesheetView.mine;
 
+  DateTime _weekStart(DateTime date) {
+    final DateTime day = DateUtils.dateOnly(date);
+    return day.subtract(Duration(days: day.weekday - DateTime.monday));
+  }
+
+  List<Widget> _weeklyGroups({
+    required List<TimesheetEntry> entries,
+    required BusinessProvider provider,
+    required bool isManager,
+  }) {
+    final Map<DateTime, List<TimesheetEntry>> weeks =
+        <DateTime, List<TimesheetEntry>>{};
+    for (final TimesheetEntry entry in entries) {
+      weeks
+          .putIfAbsent(_weekStart(entry.date), () => <TimesheetEntry>[])
+          .add(entry);
+    }
+
+    return <Widget>[
+      for (final MapEntry<DateTime, List<TimesheetEntry>> week
+          in weeks.entries) ...<Widget>[
+        _TimesheetGroupHeading(
+          title:
+              '${DateFormat('d MMM').format(week.key)} - ${DateFormat('d MMM y').format(week.key.add(const Duration(days: 6)))}',
+          hours: week.value.fold<double>(
+            0,
+            (double total, TimesheetEntry entry) => total + entry.quantityHours,
+          ),
+        ),
+        for (final TimesheetEntry entry in week.value)
+          _TimesheetEntryCard(
+            entry: entry,
+            provider: provider,
+            showEmployee: false,
+            isManager: isManager,
+          ),
+        const SizedBox(height: 8),
+      ],
+    ];
+  }
+
+  List<Widget> _teamGroups({
+    required List<TimesheetEntry> entries,
+    required BusinessProvider provider,
+  }) {
+    final Map<String, List<TimesheetEntry>> people =
+        <String, List<TimesheetEntry>>{};
+    for (final TimesheetEntry entry in entries) {
+      people.putIfAbsent(entry.employeeId, () => <TimesheetEntry>[]).add(entry);
+    }
+    final List<MapEntry<String, List<TimesheetEntry>>> sorted =
+        people.entries.toList()..sort((
+          MapEntry<String, List<TimesheetEntry>> a,
+          MapEntry<String, List<TimesheetEntry>> b,
+        ) {
+          return _employeeName(
+            provider,
+            a.key,
+          ).compareTo(_employeeName(provider, b.key));
+        });
+
+    return <Widget>[
+      for (final MapEntry<String, List<TimesheetEntry>> person
+          in sorted) ...<Widget>[
+        _TimesheetPersonHeading(
+          name: _employeeName(provider, person.key),
+          hours: person.value.fold<double>(
+            0,
+            (double total, TimesheetEntry entry) => total + entry.quantityHours,
+          ),
+        ),
+        ..._weeklyGroups(
+          entries: person.value,
+          provider: provider,
+          isManager: true,
+        ),
+        const SizedBox(height: 12),
+      ],
+    ];
+  }
+
   void _showAddEntry(BuildContext context) {
     final BusinessProvider provider = context.read<BusinessProvider>();
     showModalBottomSheet<void>(
@@ -483,13 +564,13 @@ class _TimesheetScreenState extends State<TimesheetScreen> {
               ),
             ),
             const SizedBox(height: 12),
-            for (final TimesheetEntry entry in entries)
-              _TimesheetEntryCard(
-                entry: entry,
-                provider: provider,
-                showEmployee: _view == _TimesheetView.team,
-                isManager: isManager,
-              ),
+            ...(_view == _TimesheetView.team
+                ? _teamGroups(entries: entries, provider: provider)
+                : _weeklyGroups(
+                    entries: entries,
+                    provider: provider,
+                    isManager: isManager,
+                  )),
             if (entries.isEmpty)
               Card(
                 child: Padding(
@@ -924,6 +1005,79 @@ class _AddEntrySheetState extends State<_AddEntrySheet> {
   }
 }
 
+class _TimesheetPersonHeading extends StatelessWidget {
+  const _TimesheetPersonHeading({required this.name, required this.hours});
+
+  final String name;
+  final double hours;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 12, 4, 8),
+      child: Row(
+        children: <Widget>[
+          CircleAvatar(
+            radius: 18,
+            backgroundColor: Theme.of(context).colorScheme.primary,
+            child: Text(
+              name.isEmpty ? '?' : name[0].toUpperCase(),
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              name,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
+          ),
+          Text(
+            '${hours.toStringAsFixed(1)} hrs',
+            style: TextStyle(
+              color: Colors.grey.shade700,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TimesheetGroupHeading extends StatelessWidget {
+  const _TimesheetGroupHeading({required this.title, required this.hours});
+
+  final String title;
+  final double hours;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 8, 4, 6),
+      child: Row(
+        children: <Widget>[
+          const Icon(Icons.date_range_outlined, size: 18),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text(
+              title,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ),
+          Text(
+            '${hours.toStringAsFixed(1)} hrs',
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _TimesheetEntryCard extends StatelessWidget {
   const _TimesheetEntryCard({
     required this.entry,
@@ -943,7 +1097,7 @@ class _TimesheetEntryCard extends StatelessWidget {
       if (showEmployee) _employeeName(provider, entry.employeeId),
       DateFormat('EEE d MMM').format(entry.date),
       if (entry.startTime != null && entry.endTime != null)
-        '${DateFormat.Hm().format(entry.startTime!)}â€“${DateFormat.Hm().format(entry.endTime!)}',
+        '${DateFormat.Hm().format(entry.startTime!)} - ${DateFormat.Hm().format(entry.endTime!)}',
       if (entry.breakHours > 0)
         '${entry.breakHours.toStringAsFixed(entry.breakHours % 1 == 0 ? 0 : 2)} hr break',
       '${entry.quantityHours.toStringAsFixed(1)} hrs',
